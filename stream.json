@@ -1,0 +1,13 @@
+{
+  "brokers":"ubuntu:9092",
+  "topics":"lch3",
+  "batch_duration":4,
+  "ports":"10105,9,2",
+  "#mapper":12,
+  "#reducer":2,
+  "kafka_offset":"largest",
+  "save_path":"hdfs://ubuntu1:9000/lch",
+  "logic_time_slot":1000,
+  "key_space": ["A", "B", "C", "D", "E", "F"],
+  "sleep_time_ms": 1.0
+}

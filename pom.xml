@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>fudan.kawhi</groupId>
+    <artifactId>asyn-stream-join-parent</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>my-streaming</module>
+        <module>stateless</module>
+        <module>state</module>
+        <module>my-common</module>
+    </modules>
+
+    <properties>
+        <scala.version>2.11.8</scala.version>
+        <scala.binary.version>2.11</scala.binary.version>
+        <jetty.version>9.2.16.v20160414</jetty.version>
+        <spark.version>2.0.0</spark.version>
+
+        <!-- Package to use when relocating shaded classes. -->
+        <spark.shade.packageName>org.spark_project</spark.shade.packageName>
+
+        <PermGen>64m</PermGen>
+        <MaxPermGen>512m</MaxPermGen>
+        <CodeCacheSize>512m</CodeCacheSize>
+
+    </properties>
+
+
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.json4s</groupId>
+            <artifactId>json4s-jackson_${scala.binary.version}</artifactId>
+            <version>3.2.11</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.binary.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+
+                <!--scala-maven-plugin-->
+                <plugin>
+                    <groupId>net.alchim31.maven</groupId>
+                    <artifactId>scala-maven-plugin</artifactId>
+                    <version>3.2.2</version>
+                    <executions>
+                        <!--<execution>-->
+                            <!--<id>eclipse-add-source</id>-->
+                            <!--<goals>-->
+                                <!--<goal>add-source</goal>-->
+                            <!--</goals>-->
+                        <!--</execution>-->
+                        <execution>
+                            <id>scala-compile-first</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>compile</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>scala-test-compile-first</id>
+                            <phase>process-test-resources</phase>
+                            <goals>
+                                <goal>testCompile</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <!--<configuration>-->
+                        <!--<scalaVersion>${scala.version}</scalaVersion>-->
+                        <!--<recompileMode>incremental</recompileMode>-->
+                        <!--<useZincServer>true</useZincServer>-->
+                        <!--<args>-->
+                            <!--<arg>-unchecked</arg>-->
+                            <!--<arg>-deprecation</arg>-->
+                            <!--<arg>-feature</arg>-->
+                        <!--</args>-->
+                        <!--<jvmArgs>-->
+                            <!--<jvmArg>-Xms1024m</jvmArg>-->
+                            <!--<jvmArg>-Xmx1024m</jvmArg>-->
+                            <!--<jvmArg>-XX:PermSize=${PermGen}</jvmArg>-->
+                            <!--<jvmArg>-XX:MaxPermSize=${MaxPermGen}</jvmArg>-->
+                            <!--<jvmArg>-XX:ReservedCodeCacheSize=${CodeCacheSize}</jvmArg>-->
+                        <!--</jvmArgs>-->
+                        <!--<javacArgs>-->
+                            <!--<javacArg>-source</javacArg>-->
+                            <!--<javacArg>${java.version}</javacArg>-->
+                            <!--<javacArg>-target</javacArg>-->
+                            <!--<javacArg>${java.version}</javacArg>-->
+                            <!--<javacArg>-Xlint:all,-serial,-path</javacArg>-->
+                        <!--</javacArgs>-->
+                    <!--</configuration>-->
+                </plugin>
+
+                <!--maven-compiler-plugin-->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
+
+                <!--maven-shade-plugin-->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>2.4.3</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <!--scala-maven-plugin-->
+            <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+            </plugin>
+
+            <!--maven-compiler-plugin-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--maven-shade-plugin-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <configuration>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--<plugin>-->
+                <!--<groupId>org.apache.maven.plugins</groupId>-->
+                <!--<artifactId>maven-shade-plugin</artifactId>-->
+                <!--<configuration>-->
+                    <!--<shadedArtifactAttached>false</shadedArtifactAttached>-->
+                    <!--<artifactSet>-->
+                        <!--<includes>-->
+                            <!--<include>org.spark-project.spark:unused</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-io</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-http</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-continuation</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-servlet</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-servlets</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-plus</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-security</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-util</include>-->
+                            <!--<include>org.eclipse.jetty:jetty-server</include>-->
+                            <!--<include>com.google.guava:guava</include>-->
+                        <!--</includes>-->
+                    <!--</artifactSet>-->
+                    <!--<relocations>-->
+                        <!--<relocation>-->
+                            <!--<pattern>org.eclipse.jetty</pattern>-->
+                            <!--<shadedPattern>${spark.shade.packageName}.jetty</shadedPattern>-->
+                            <!--<includes>-->
+                                <!--<include>org.eclipse.jetty.**</include>-->
+                            <!--</includes>-->
+                        <!--</relocation>-->
+                        <!--<relocation>-->
+                            <!--<pattern>com.google.common</pattern>-->
+                            <!--<shadedPattern>${spark.shade.packageName}.guava</shadedPattern>-->
+                        <!--</relocation>-->
+                    <!--</relocations>-->
+                <!--</configuration>-->
+                <!--<executions>-->
+                    <!--<execution>-->
+                        <!--<phase>package</phase>-->
+                        <!--<goals>-->
+                            <!--<goal>shade</goal>-->
+                        <!--</goals>-->
+                    <!--</execution>-->
+                <!--</executions>-->
+            <!--</plugin>-->
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.19.1</version>
+                <configuration>
+                    <useFile>false</useFile>
+                    <disableXmlReport>true</disableXmlReport>
+                    <!-- If you have classpath issue like NoDefClassError,... -->
+                    <!-- useManifestOnlyJar>false</useManifestOnlyJar -->
+                    <includes>
+                        <include>**/*Test.*</include>
+                        <include>**/*Suite.*</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
