@@ -10,10 +10,9 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>my-streaming</module>
+        <module>my-common</module>
         <module>stateless</module>
         <module>state</module>
-        <module>my-common</module>
     </modules>
 
     <properties>
@@ -37,18 +36,6 @@
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-library</artifactId>
             <version>${scala.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.json4s</groupId>
-            <artifactId>json4s-jackson_${scala.binary.version}</artifactId>
-            <version>3.2.11</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_${scala.binary.version}</artifactId>
-            <version>${spark.version}</version>
             <scope>provided</scope>
         </dependency>
 
