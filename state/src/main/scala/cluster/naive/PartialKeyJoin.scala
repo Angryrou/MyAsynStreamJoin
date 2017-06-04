@@ -137,7 +137,7 @@ object PartialKeyJoin {
             (wtpc._1._1, (wtpc._1._2, 0))
         }
       })
-      res.iterator
+      res.iterator // (word, (ltw, min_count))
     }
 
     val spec_rr = MyStateSpecWithIndex.function(mappingFuncPK _).partitioner(new StatePartialKeyPartitioner(m, seeds))
@@ -152,8 +152,6 @@ object PartialKeyJoin {
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(globalMerge)
 
-
-    messages.foreachRDD(_.collect)
     messages.foreachRDD((rdd, time) => {
       println(s"----- $time -----")
       rdd.mapPartitionsWithIndex((index, iter) => {

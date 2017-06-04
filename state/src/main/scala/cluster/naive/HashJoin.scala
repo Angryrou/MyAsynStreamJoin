@@ -38,7 +38,7 @@ object HashJoin {
       "auto.offset.reset" -> kafka_offset
     )
 
-    // element:"timestamp port word" => (word, (port, ltw))
+    // element:"timestamp port word" => (word, (port, ltw)) or (partitionId, (port, ltw))
     val preProcessing = (iter: Iterator[String]) => {
       val ret = mutable.ListBuffer[(String, (Int, BigInt))]()
       val portMap = mutable.Map[Int, BigInt]() // 当前每个 port 到达 ltw 的最大值
@@ -131,9 +131,9 @@ object HashJoin {
       .myMapWithStateWithIndex(spec_hh, ports_num)
       .filter(!_.equals(None))
       .flatMap(rdd => {
-        val tmp = rdd.get // word, Array(BigInt, min_count)
+        val tmp = rdd.get // word, Array(lgw, min_count)
         val ret = tmp._2.map((tmp._1, _))
-        ret
+        ret // (word, (lgw, min_count))
       })
 
     messages.foreachRDD((rdd, time) => {

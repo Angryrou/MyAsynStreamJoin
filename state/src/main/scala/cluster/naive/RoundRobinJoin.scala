@@ -134,7 +134,7 @@ object RoundRobinJoin {
             (wtpc._1._1, (wtpc._1._2, 0))
         }
       })
-      res.iterator
+      res.iterator // (word, (lgw, min_count))
     }
 
     val spec_rr = MyStateSpecWithIndex.function(mappingFuncRR _).partitioner(new StateRoundRobinPartitioner(m))
