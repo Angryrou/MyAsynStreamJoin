@@ -27,12 +27,14 @@ class MyPairDStreamFunctions[K, V](self: DStream[(K, V)])
   @Experimental
   def myMapWithStateWithIndex[StateType: ClassTag, MappedType: ClassTag](
                                                                  spec: MyStateSpecWithIndex[K, V, StateType, MappedType],
-                                                                 m: Int
+                                                                 m: Int,
+                                                                 isOptimized : Boolean = false
                                                                ): MyMapWithStateWithIndexDstream[K, V, StateType, MappedType] = {
     new MyMapWithStateWithIndexDstreamImpl[K, V, StateType, MappedType](
       self,
       spec.asInstanceOf[MyStateSpecWithIndexImpl[K, V, StateType, MappedType]],
-      m
+      m,
+      isOptimized
     )
   }
 

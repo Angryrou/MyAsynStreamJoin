@@ -38,11 +38,12 @@ private[streaming] class MyMapWithStateWithIndexDstreamImpl[
 KeyType: ClassTag, ValueType: ClassTag, StateType: ClassTag, MappedType: ClassTag](
                                                                                     dataStream: DStream[(KeyType, ValueType)],
                                                                                     spec: MyStateSpecWithIndexImpl[KeyType, ValueType, StateType, MappedType],
-                                                                                    m: Int)
+                                                                                    m: Int,
+                                                                                    isOptimized: Boolean)
   extends MyMapWithStateWithIndexDstream[KeyType, ValueType, StateType, MappedType](dataStream.context) {
 
   private val internalStream =
-    new InternalMyMapWithStateWithIndexDstream[KeyType, ValueType, StateType, MappedType](dataStream, spec, m)
+    new InternalMyMapWithStateWithIndexDstream[KeyType, ValueType, StateType, MappedType](dataStream, spec, m, isOptimized)
 
   override def slideDuration: Duration = internalStream.slideDuration
 
@@ -90,7 +91,10 @@ KeyType: ClassTag, ValueType: ClassTag, StateType: ClassTag, MappedType: ClassTa
   */
 private[streaming]
 class InternalMyMapWithStateWithIndexDstream[K: ClassTag, V: ClassTag, S: ClassTag, E: ClassTag](
-                                                                                       parent: DStream[(K, V)], spec: MyStateSpecWithIndexImpl[K, V, S, E], m: Int)
+                                                                                       parent: DStream[(K, V)],
+                                                                                       spec: MyStateSpecWithIndexImpl[K, V, S, E],
+                                                                                       m: Int,
+                                                                                       isOptimized: Boolean)
   extends DStream[MyMapWithStateWithIndexRDDRecord[K, S, E]](parent.context) {
 
   persist(StorageLevel.MEMORY_ONLY)
@@ -125,7 +129,7 @@ class InternalMyMapWithStateWithIndexDstream[K: ClassTag, V: ClassTag, S: ClassT
           // partition index as the key. This is to ensure that state RDD is always partitioned
           // before creating another state RDD using it
           MyMapWithStateWithIndexRDD.createFromRDD[K, V, S, E](
-            rdd.flatMap { _.stateMap.getAll() }, partitioner, validTime, m)
+            rdd.flatMap { _.stateMap.getAll() }, partitioner, validTime, m, isOptimized)
         } else {
           rdd
         }
@@ -134,7 +138,8 @@ class InternalMyMapWithStateWithIndexDstream[K: ClassTag, V: ClassTag, S: ClassT
           spec.getInitialStateRDD().getOrElse(new EmptyRDD[(K, S)](ssc.sparkContext)),
           partitioner,
           validTime,
-          m
+          m,
+          isOptimized
         )
     }
 
@@ -149,7 +154,7 @@ class InternalMyMapWithStateWithIndexDstream[K: ClassTag, V: ClassTag, S: ClassT
       (validTime - interval).milliseconds
     }
     Some(new MyMapWithStateWithIndexRDD(
-      prevStateRDD, partitionedDataRDD, mappingFunction, validTime, timeoutThresholdTime, m))
+      prevStateRDD, partitionedDataRDD, mappingFunction, validTime, timeoutThresholdTime, m, isOptimized))
   }
 }
 

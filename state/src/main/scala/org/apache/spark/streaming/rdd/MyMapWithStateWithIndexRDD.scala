@@ -25,6 +25,7 @@ private[streaming] case class MyMapWithStateWithIndexRDDRecord[K, S, E](
 
 private[streaming] object MyMapWithStateWithIndexRDDRecord {
   def updateRecordWithData[K: ClassTag, V: ClassTag, S: ClassTag, E: ClassTag](
+                                                                                isOptimized: Boolean,
                                                                                 m: Int,
                                                                                 index: Int,
                                                                                 prevRecord: Option[MyMapWithStateWithIndexRDDRecord[K, S, E]],
@@ -53,50 +54,98 @@ private[streaming] object MyMapWithStateWithIndexRDDRecord {
     // m: ports_num
     // input1: (word, (port, ltw))
     // input2: (mapWorkerPartitionId, (port, ltw))
+    // input1-optimized: ((word, ltw), port)
+    // input2-optimized: ((mapWorkerPartitionId, ltw), port)
+
     // 判断 input 标准: 传入的 key 是不是纯数字.
 
     val regex ="""^\d+$""".r
-    dataIterator.foreach { case (key, value) =>
-      val k = key.asInstanceOf[String]
-      val v = value.asInstanceOf[(Int, BigInt)]
-//      println(s"partition: $index, dataIterator: ($k , $v)")
-      (regex.findFirstMatchIn(k) == None) match {
-        case false => {
-          // 说明 k 是纯数字的 字符串, 属于 input2
-          val trigger = MyStateJoinUtils.updataTimeTablesAndGetTriggers(index, v._1, m, v._2)
-          if (trigger != None) {
-            println(s"TRIGGER!!!!! $trigger --> partition $index")
-            // 产生了 trigger 信号, 说明要检查输出了..., 遍历每个 key
-            newStateMap.getAll().foreach { case (key1, _, _) =>
-              wrappedState.wrap(newStateMap.get(key1))
-              // 暂时盗窃一下 timeout 的方法, 把 value 是 None 的情况视作是 global_trigger 信号到达的信息
-              // 可以前往 StateJoinUtils 里提取最新的 global_trigger 信号
-              val returned = mappingFunction(index, batchTime, key1, None, wrappedState)
-              if (wrappedState.isRemoved) {
-                newStateMap.remove(key1)
-              } else if (wrappedState.isUpdated
-                || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
-                newStateMap.put(key1, wrappedState.get(), batchTime.milliseconds)
+    if (isOptimized == false) {
+      dataIterator.foreach { case (key, value) =>
+        val k = key.asInstanceOf[String]
+        val v = value.asInstanceOf[(Int, BigInt)]
+        //      println(s"partition: $index, dataIterator: ($k , $v)")
+        (regex.findFirstMatchIn(k) == None) match {
+          case false => {
+            // 说明 k 是纯数字的 字符串, 属于 input2
+            val trigger = MyStateJoinUtils.updataTimeTablesAndGetTriggers(index, v._1, m, v._2)
+            if (trigger != None) {
+              println(s"TRIGGER!!!!! $trigger --> partition $index")
+              // 产生了 trigger 信号, 说明要检查输出了..., 遍历每个 key
+              newStateMap.getAll().foreach { case (key1, _, _) =>
+                wrappedState.wrap(newStateMap.get(key1))
+                // 暂时盗窃一下 timeout 的方法, 把 value 是 None 的情况视作是 global_trigger 信号到达的信息
+                // 可以前往 StateJoinUtils 里提取最新的 global_trigger 信号
+                val returned = mappingFunction(index, batchTime, key1, None, wrappedState)
+                if (wrappedState.isRemoved) {
+                  newStateMap.remove(key1)
+                } else if (wrappedState.isUpdated
+                  || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
+                  newStateMap.put(key1, wrappedState.get(), batchTime.milliseconds)
+                }
+                mappedData ++= returned
               }
-              mappedData ++= returned
             }
           }
-        }
-        case true => {
-          // input1
-          wrappedState.wrap(newStateMap.get(key))
-          val returned = mappingFunction(index, batchTime, key, Some(value), wrappedState)
-          if (wrappedState.isRemoved) {
-            newStateMap.remove(key)
-          } else if (wrappedState.isUpdated
-            || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
-            newStateMap.put(key, wrappedState.get(), batchTime.milliseconds)
+          case true => {
+            // input1
+            wrappedState.wrap(newStateMap.get(key))
+            val returned = mappingFunction(index, batchTime, key, Some(value), wrappedState)
+            if (wrappedState.isRemoved) {
+              newStateMap.remove(key)
+            } else if (wrappedState.isUpdated
+              || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
+              newStateMap.put(key, wrappedState.get(), batchTime.milliseconds)
+            }
+            mappedData ++= returned
           }
-          mappedData ++= returned
+        }
+      }
+    } else {
+      dataIterator.foreach { case (key, value) =>
+        val k = key.asInstanceOf[(String, BigInt)]
+        val v = value.asInstanceOf[Int]
+        //      println(s"partition: $index, dataIterator: ($k , $v)")
+        (regex.findFirstMatchIn(k._1) == None) match {
+          case false => {
+            // 说明 k._1 是纯数字的 字符串, 属于 input2
+            val trigger = MyStateJoinUtils.updataTimeTablesAndGetTriggers(index, v, m, k._2)
+            if (trigger != None) {
+              println(s"TRIGGER!!!!! $trigger --> partition $index")
+              // 产生了 trigger 信号, 说明要检查输出了..., 遍历每个 key
+              newStateMap.getAll().foreach { case (key1, _, _) =>
+                // 如果 key1 中所存数据的时间小于等于 trigger 时间
+                if (key1.asInstanceOf[(String, BigInt)]._2 <= trigger.get) {
+                  wrappedState.wrap(newStateMap.get(key1))
+                  // 暂时盗窃一下 timeout 的方法, 把 value 是 None 的情况视作是 global_trigger 信号到达的信息
+                  // 可以前往 StateJoinUtils 里提取最新的 global_trigger 信号
+                  val returned = mappingFunction(index, batchTime, key1, None, wrappedState)
+                  if (wrappedState.isRemoved) {
+                    newStateMap.remove(key1)
+                  } else if (wrappedState.isUpdated
+                    || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
+                    newStateMap.put(key1, wrappedState.get(), batchTime.milliseconds)
+                  }
+                  mappedData ++= returned
+                }
+              }
+            }
+          }
+          case true => {
+            // input1
+            wrappedState.wrap(newStateMap.get(key))
+            val returned = mappingFunction(index, batchTime, key, Some(value), wrappedState)
+            if (wrappedState.isRemoved) {
+              newStateMap.remove(key)
+            } else if (wrappedState.isUpdated
+              || (wrappedState.exists && timeoutThresholdTime.isDefined)) {
+              newStateMap.put(key, wrappedState.get(), batchTime.milliseconds)
+            }
+            mappedData ++= returned
+          }
         }
       }
     }
-
     // Get the timed out state records, call the mapping function on each and collect the
     // data returned
     if (removeTimedoutData && timeoutThresholdTime.isDefined) {
@@ -161,7 +210,8 @@ private[streaming] class MyMapWithStateWithIndexRDD[K: ClassTag, V: ClassTag, S:
                                                                                                          mappingFunction: (Int, Time, K, Option[V], State[S]) => Option[E],
                                                                                                          batchTime: Time,
                                                                                                          timeoutThresholdTime: Option[Long],
-                                                                                                         m: Int
+                                                                                                         m: Int,
+                                                                                                         isOptimized: Boolean
                                                                                                        ) extends RDD[MyMapWithStateWithIndexRDDRecord[K, S, E]](
   partitionedDataRDD.sparkContext,
   List(
@@ -192,6 +242,7 @@ private[streaming] class MyMapWithStateWithIndexRDD[K: ClassTag, V: ClassTag, S:
 
     val prevRecord = if (prevStateRDDIterator.hasNext) Some(prevStateRDDIterator.next()) else None
     val newRecord = MyMapWithStateWithIndexRDDRecord.updateRecordWithData(
+      isOptimized,
       m,
       stateRDDPartition.index,
       prevRecord,
@@ -227,7 +278,8 @@ private[streaming] object MyMapWithStateWithIndexRDD {
                                                                              pairRDD: RDD[(K, S)],
                                                                              partitioner: Partitioner,
                                                                              updateTime: Time,
-                                                                             m: Int): MyMapWithStateWithIndexRDD[K, V, S, E] = {
+                                                                             m: Int,
+                                                                             isOptimized: Boolean): MyMapWithStateWithIndexRDD[K, V, S, E] = {
 
     val stateRDD = pairRDD.partitionBy(partitioner).mapPartitions({ iterator =>
       val stateMap = StateMap.create[K, S](SparkEnv.get.conf)
@@ -240,14 +292,15 @@ private[streaming] object MyMapWithStateWithIndexRDD {
     val noOpFunc = (index: Int, time: Time, key: K, value: Option[V], state: State[S]) => None
 
     new MyMapWithStateWithIndexRDD[K, V, S, E](
-      stateRDD, emptyDataRDD, noOpFunc, updateTime, None, m)
+      stateRDD, emptyDataRDD, noOpFunc, updateTime, None, m, isOptimized)
   }
 
   def createFromRDD[K: ClassTag, V: ClassTag, S: ClassTag, E: ClassTag](
                                                                          rdd: RDD[(K, S, Long)],
                                                                          partitioner: Partitioner,
                                                                          updateTime: Time,
-                                                                         m: Int): MyMapWithStateWithIndexRDD[K, V, S, E] = {
+                                                                         m: Int,
+                                                                         isOptimized: Boolean): MyMapWithStateWithIndexRDD[K, V, S, E] = {
 
     val pairRDD = rdd.map { x => (x._1, (x._2, x._3)) }
     val stateRDD = pairRDD.partitionBy(partitioner).mapPartitions({ iterator =>
@@ -263,6 +316,6 @@ private[streaming] object MyMapWithStateWithIndexRDD {
     val noOpFunc = (index: Int, time: Time, key: K, value: Option[V], state: State[S]) => None
 
     new MyMapWithStateWithIndexRDD[K, V, S, E](
-      stateRDD, emptyDataRDD, noOpFunc, updateTime, None, m)
+      stateRDD, emptyDataRDD, noOpFunc, updateTime, None, m, isOptimized)
   }
 }
