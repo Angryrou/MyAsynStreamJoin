@@ -22,8 +22,8 @@ object PartialKeyJoin {
       System.exit(1)
     }
     // 参数读取
-    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_ns)
-    = MyUtils.getFromJson(args(0))
+    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
+    sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
     val seeds= args(1).split(",").map(_.toInt)
     val mapperIdSet = (0 until m).map(_.toString)
     val isOptimized = true
@@ -84,6 +84,7 @@ object PartialKeyJoin {
         }
         case Some(p) => {
           // 说明是正常数据加入,emitted 数据是 None
+          MyUtils.sleepNanos(sleep_time_map_ns)
           mp(p) = mp.getOrElse(p, 0) + 1
           state.update(mp)
           return None
@@ -99,7 +100,7 @@ object PartialKeyJoin {
         val pcLocalMap = wtpc._2
         val pcGlobalMap = ret.getOrElse(wtpc._1, mutable.Map[Int, Int]()) // {port -> global_count}
         pcLocalMap.foreach { case (port, local_count) =>
-          MyUtils.sleepNanos(sleep_time_ns)
+          MyUtils.sleepNanos(sleep_time_reduce_ns)
           val global_count = pcGlobalMap.getOrElse(port, 0) + local_count
           pcGlobalMap(port) = global_count
         }

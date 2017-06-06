@@ -28,8 +28,8 @@ object RoundRobinJoin {
       System.exit(1)
     }
     // 参数读取
-    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_ns)
-    = MyUtils.getFromJson(args(0))
+    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
+    sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("RoundRobinJoin_stateless")
@@ -52,7 +52,7 @@ object RoundRobinJoin {
       val ret = mutable.Map[(String, Int), Int]()
       while (iter.hasNext) {
         val wp = iter.next() // (word, port)
-        MyUtils.sleepNanos(sleep_time_ns)
+        MyUtils.sleepNanos(sleep_time_map_ns)
 //        Thread.sleep(1)
         ret(wp) = ret.getOrElse(wp, 0) + 1 // ((word, port), local_count)
       }
@@ -65,7 +65,7 @@ object RoundRobinJoin {
       while (iter.hasNext) {
         val wpc = iter.next() // (word, (port, lc))
         val tmpMap = ret.getOrElse(wpc._1, mutable.Map[Int, Int]())
-        MyUtils.sleepNanos(sleep_time_ns)
+        MyUtils.sleepNanos(sleep_time_reduce_ns)
 //        Thread.sleep(1)
         tmpMap(wpc._2._1) = tmpMap.getOrElse(wpc._2._1, 0) + wpc._2._2
         ret(wpc._1) = tmpMap

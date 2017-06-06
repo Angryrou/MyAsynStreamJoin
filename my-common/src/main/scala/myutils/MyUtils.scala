@@ -32,6 +32,9 @@ object MyUtils {
     val path = (jMap \ "save_path").values.toString
     val lgw = (jMap \ "logic_time_slot").values.toString.toInt
     val sleep_time_ns = ((jMap \ "sleep_time_ms").asInstanceOf[JDouble].values * 1000000).toLong
+    val sleep_time_map_ns = ((jMap \ "sleep_time_map_ms").asInstanceOf[JDouble].values * 1000000).toLong
+    val sleep_time_reduce_ns = ((jMap \ "sleep_time_reduce_ms").asInstanceOf[JDouble].values * 1000000).toLong
+
     //    val key_space = (jMap \ "key_space").values.toString
     val key_space = (jMap \ "key_space").values.asInstanceOf[List[String]]
     val parsePorts = (ps_str: String) => {
@@ -48,7 +51,8 @@ object MyUtils {
     }
     val ports = parsePorts(ports_str)
     val ports_num = ports.length
-    (brokers, topics, batch_duration, ports_num, M, R, kafka_offset, path, lgw, key_space, sleep_time_ns)
+    (brokers, topics, batch_duration, ports_num, M, R, kafka_offset, path,
+      lgw, key_space, sleep_time_map_ns, sleep_time_reduce_ns)
   }
   def sleepNanos(internal : Long = 100) = {
     val start = System.nanoTime()

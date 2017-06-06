@@ -22,8 +22,8 @@ object HashJoin {
       System.exit(1)
     }
     // 参数读取
-    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_ns)
-    = MyUtils.getFromJson(args(0))
+    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
+    sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
     val mapperIdSet = (0 until m).map(_.toString)
     val isOptimized = true
 
@@ -88,7 +88,7 @@ object HashJoin {
         case Some(p) => {
           // 说明是正常数据加入,emitted 数据是 None
           mp(p) = mp.getOrElse(p, 0) + 1
-          MyUtils.sleepNanos(sleep_time_ns)
+          MyUtils.sleepNanos(sleep_time_map_ns)
           state.update(mp)
           return None
         }

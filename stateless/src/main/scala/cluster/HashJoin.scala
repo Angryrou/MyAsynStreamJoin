@@ -27,8 +27,8 @@ object HashJoin {
       System.exit(1)
     }
     // 参数读取
-    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_ns)
-    = MyUtils.getFromJson(args(0))
+    val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
+    sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("HashJoin_stateless")
@@ -53,7 +53,7 @@ object HashJoin {
       while (iter.hasNext) {
         val wp = iter.next() // (word, port)
         val tmpMap = ret.getOrElse(wp._1, mutable.Map[Int, Int]())
-        MyUtils.sleepNanos(sleep_time_ns)
+        MyUtils.sleepNanos(sleep_time_map_ns)
 //        Thread.sleep(1)
         tmpMap(wp._2) = tmpMap.getOrElse(wp._2, 0) + 1
         ret(wp._1) = tmpMap
