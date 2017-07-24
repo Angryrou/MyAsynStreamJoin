@@ -56,7 +56,7 @@ object PartialKeyDynamicJoin {
         wc.values.max * 1.0 / len
       }
       val d = (p1 * m).toInt + 1
-      PartialKeyDynamicKey.updateDTables(id, d)
+      PartialKeyDynamicConfig.updateDTables(id, d)
       println(s"loader-$id, p1 = $p1, d = $d, wc.size = ${wc.size}, len = $len")
       ret.iterator
     }

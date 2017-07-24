@@ -1,6 +1,6 @@
 package mypartitioner
 
-import cluster.PartialKeyDynamicKey
+import cluster.PartialKeyDynamicConfig
 import com.google.common.hash.{HashFunction, Hashing}
 import org.apache.spark.Partitioner
 
@@ -17,7 +17,7 @@ class DynamicPartialKeyPartitioner(partitions : Int) extends Partitioner {
 
   def getPartition(key: Any): Int = {
     if (hashes.isEmpty) {
-      hashes = PartialKeyDynamicKey.getSeeds().map(Hashing.murmur3_128(_))
+      hashes = PartialKeyDynamicConfig.getSeeds().map(Hashing.murmur3_128(_))
     }
     val choices = hashes.map(h => (Math.abs(h.hashBytes(key.toString.getBytes()).asLong()) % partitions).toInt)
     var ret = choices(0)

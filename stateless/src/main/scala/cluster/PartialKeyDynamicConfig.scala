@@ -5,7 +5,7 @@ import scala.collection.concurrent.TrieMap
 /**
   * Created by kawhi on 03/07/2017.
   */
-object PartialKeyDynamicKey {
+object PartialKeyDynamicConfig {
   private val dTables = TrieMap[Int, Int]()
   private val seedsArray = Array(1,2,4,5,6,8,11,12,13,15,16,19,20,21,22,24,26,28)
 

@@ -88,7 +88,7 @@ object PartialKeyDynamicGlobalJoin {
       println(s"----- $time -----")
       println(s"p1: $p1, total: $count, d: $d")
       println()
-      rdd.partitionBy(new PartialKeyPartitioner(m, PartialKeyDynamicKey.getGlobalSeeds(d)))
+      rdd.partitionBy(new PartialKeyPartitioner(m, PartialKeyDynamicConfig.getGlobalSeeds(d)))
     })
       .mapPartitions(localMerge) // (word, (port, local_count))
       .transform(_.partitionBy(new HashPartitioner(r)))
