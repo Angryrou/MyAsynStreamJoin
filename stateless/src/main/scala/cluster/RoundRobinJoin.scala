@@ -53,7 +53,6 @@ object RoundRobinJoin {
       while (iter.hasNext) {
         val wp = iter.next() // (word, port)
         MyUtils.sleepNanos(sleep_time_map_ns)
-//        Thread.sleep(1)
         ret(wp) = ret.getOrElse(wp, 0) + 1 // ((word, port), local_count)
       }
       ret.toList.map(t => (t._1._1, (t._1._2, t._2))).iterator
@@ -66,7 +65,6 @@ object RoundRobinJoin {
         val wpc = iter.next() // (word, (port, lc))
         val tmpMap = ret.getOrElse(wpc._1, mutable.Map[Int, Int]())
         MyUtils.sleepNanos(sleep_time_reduce_ns)
-//        Thread.sleep(1)
         tmpMap(wpc._2._1) = tmpMap.getOrElse(wpc._2._1, 0) + wpc._2._2
         ret(wpc._1) = tmpMap
       }

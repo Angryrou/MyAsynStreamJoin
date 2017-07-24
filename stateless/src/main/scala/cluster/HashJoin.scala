@@ -54,7 +54,6 @@ object HashJoin {
         val wp = iter.next() // (word, port)
         val tmpMap = ret.getOrElse(wp._1, mutable.Map[Int, Int]())
         MyUtils.sleepNanos(sleep_time_map_ns)
-//        Thread.sleep(1)
         tmpMap(wp._2) = tmpMap.getOrElse(wp._2, 0) + 1
         ret(wp._1) = tmpMap
       }
