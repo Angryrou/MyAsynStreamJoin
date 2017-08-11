@@ -13,6 +13,7 @@
         <module>my-common</module>
         <module>stateless</module>
         <module>state</module>
+        <module>one-group-stateless</module>
     </modules>
 
     <properties>

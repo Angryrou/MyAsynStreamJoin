@@ -4,28 +4,33 @@ import com.google.common.hash.Hashing
 import org.apache.spark.{Partitioner, TaskContext}
 import cluster.AdvancedConfig
 
+import scala.collection.mutable
+
 /**
   * Created by kawhi on 24/07/2017.
   */
 class AdvancedPartialKeyPartitioner(partitions : Int, seeds : Array[Int]) extends Partitioner{
 
+  // 每个 executor 都会 new 一个该类,所以该类的内容会被多个partition用到.
   private val tailSeeds = Array[Int](1,2)
-
   private val tailHashes = tailSeeds.map(Hashing.murmur3_128(_))
   private val headHashes = seeds.map(Hashing.murmur3_128(_))
-  private val mapperStats = new Array[Int](partitions)
   private var head = Set[String]()
+  private val mapperStatsSet = mutable.Map[Int, Array[Int]]() // 每个 executor 中的每个 partition 都有一个维护自己的 Array
   private var pid = -1
 
   def numPartitions : Int = partitions
 
   def getPartition(key: Any): Int = {
+    // 先确定这个 key 来自哪个 partitioner 并把这个 Partitioner 的 hashes 和 mapperStats 都取到
     if (pid != TaskContext.getPartitionId()){
       pid = TaskContext.getPartitionId()
       head = AdvancedConfig.getHead(pid)
     }
-    val skey = key.toString
+    val mapperStats = mapperStatsSet.getOrElse(pid, new Array[Int](partitions))
 
+    // 做多个choice 并且做出选择
+    val skey = key.toString
     val choices = if (head.contains(skey)) {
       headHashes.map(h => (Math.abs(h.hashBytes(skey.getBytes()).asLong()) % partitions).toInt)
     } else {
@@ -38,11 +43,14 @@ class AdvancedPartialKeyPartitioner(partitions : Int, seeds : Array[Int]) extend
         ret = c
     })
     mapperStats(ret) += 1
+
+    // 对选择进行记录和更新
+    mapperStatsSet(pid) = mapperStats
     ret
   }
 
   override def equals(other: Any): Boolean = other match {
-    case h: PartialKeyPartitioner =>
+    case h: AdvancedPartialKeyPartitioner =>
       h.numPartitions == numPartitions
     case _ =>
       false

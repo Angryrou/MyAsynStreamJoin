@@ -1,7 +1,7 @@
 package cluster.optimized
 
 import kafka.serializer.StringDecoder
-import mypartitioner.{StateHashForOptimizedPartitioner, StateHashPartitioner}
+import mypartitioner.StateHashForOptimizedPartitioner
 import myutils.MyUtils
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming.kafka.KafkaUtils
@@ -17,13 +17,15 @@ import scala.collection.mutable
 object HashJoin {
 
   def main(args: Array[String]) {
-    if (args.length != 1) {
-      System.err.println("Usage: HashJoin <stream.json>")
+    if (args.length != 3) {
+      System.err.println("Usage: HashJoin <stream.json> aggregation_time true")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
+    val aggr_sleep_time = args(1).toLong
+    val adatp_sleep = args(2).toBoolean
     val mapperIdSet = (0 until m).map(_.toString)
     val isOptimized = true
 
@@ -78,10 +80,20 @@ object HashJoin {
           // 而且, 该 key 所存的数据的 logical-time-window 的时间 <= trigger (由 MyMapWithStateWithIndexRDD 保证)
           // state 的数据已经可以 emit 并删除
           val trigger = MyStateJoinUtils.getPartitionTriggers(partitionId)
-          val ret = (mp.size == ports_num) match {
-            case true => (wordLtw._1, (wordLtw._2, mp.values.min))
-            case _ => (wordLtw._1, (wordLtw._2, 0))
+          val min_val : Int = (mp.size == ports_num) match {
+            case true => mp.values.min
+            case _ => 0
           }
+          if (adatp_sleep == true) {
+            Thread.sleep(min_val.toLong)
+          } else {
+            Thread.sleep(aggr_sleep_time)
+          }
+          val ret = (wordLtw._1, (wordLtw._2, min_val))
+//          val ret = (mp.size == ports_num) match {
+//            case true => (wordLtw._1, (wordLtw._2, mp.values.min))
+//            case _ => (wordLtw._1, (wordLtw._2, 0))
+//          }
           state.remove()
           return Some(ret)
         }

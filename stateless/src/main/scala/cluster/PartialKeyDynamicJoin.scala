@@ -43,7 +43,7 @@ object PartialKeyDynamicJoin {
     // "timestamp port word" => (word, port) e.g. (A, 9999), find the optimum d.
     val pre = (id: Int, iter : Iterator[String]) => {
       val ret = ArrayBuffer[(String, Int)]()
-      val wc = mutable.Map[String, Int]()
+      val wc = mutable.Map[String, Int]() // to detect the possibility of each key in this partition
       var len = 0
       while (iter.hasNext) {
         val wp = iter.next().split(" ")
@@ -51,8 +51,7 @@ object PartialKeyDynamicJoin {
         len += 1
         ret.append((wp(2), wp(1).toInt))
       }
-//      val p1 = if (len == 0) 0.0 else {
-      val p1 = if (wc.size == 0) 0.0 else {
+      val p1 = if (wc.size == 0) 0.0 else { // make sure len != 0
         wc.values.max * 1.0 / len
       }
       val d = (p1 * m).toInt + 1

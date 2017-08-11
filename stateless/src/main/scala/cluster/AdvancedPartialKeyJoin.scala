@@ -59,13 +59,15 @@ object AdvancedPartialKeyJoin {
         len += 1
         ret.append((wp(2), wp(1).toInt))
       }
-      head.clear()
+      head.clear() // head 需要先清空
       wc.foreach(kv => {
         if (kv._2 * 1.0 / len > threshold) {
           head.add(kv._1)
         }
       })
       AdvancedConfig.updateHeadTable(id, head.toSet)
+      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
+
       println(s"loader-$id, head:${head.mkString(",")}, wc.size = ${wc.size}, len = $len")
       ret.iterator
     }

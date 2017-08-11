@@ -17,13 +17,15 @@ import scala.collection.mutable
 object HashJoin {
 
   def main(args: Array[String]) {
-    if (args.length != 1) {
-      System.err.println("Usage: HashJoin <stream.json>")
+    if (args.length != 3) {
+      System.err.println("Usage: HashJoin <stream.json> aggregation_time true")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
       sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
+    val aggr_sleep_time = args(1).toLong
+    val adapt_sleep = args(2).toBoolean
     val mapperIdSet = (0 until m).map(_.toString)
 
     // new 一个 streamingContext
@@ -86,9 +88,15 @@ object HashJoin {
           // 将 trigger 时间之前的数据拎出最小值
           mp.foreach { case (lgw, pcMap) =>
             if (lgw <= trigger) {
-              val minCount = (pcMap.size == ports_num) match {
+              val minCount : Int = (pcMap.size == ports_num) match {
                 case true => pcMap.values.min
                 case _ => 0
+              }
+              // 为了比较 asyn 的时间
+              if (adapt_sleep == true) {
+                Thread.sleep(minCount.toLong)
+              } else {
+                Thread.sleep(aggr_sleep_time)
               }
               ret.append((lgw, minCount))
             }
