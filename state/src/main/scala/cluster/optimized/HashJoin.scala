@@ -58,7 +58,7 @@ object HashJoin {
         if (portMap.getOrElse(port, 0: BigInt) < ltw) {
           // 发送给所有 mapper, 这个 port 上, 所有小于等于 (ltw - 1) 的数据都到了
           mapperIdSet.foreach(key => {
-            ret += ((key, ltw - 1) -> port) // 用 t 表示 小于等于 t 的时间的数据都已经到了
+            ret += ((key, ltw - 1) -> port)
           })
           portMap(port) = ltw
         }
