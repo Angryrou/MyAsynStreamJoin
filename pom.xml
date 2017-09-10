@@ -14,6 +14,7 @@
         <module>stateless</module>
         <module>state</module>
         <module>one-group-stateless</module>
+        <module>one-group-state</module>
     </modules>
 
     <properties>
