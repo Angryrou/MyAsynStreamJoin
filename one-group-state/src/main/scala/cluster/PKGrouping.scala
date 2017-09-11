@@ -16,12 +16,13 @@ import scala.collection.mutable
   */
 object PKGrouping {
   def main(args: Array[String]): Unit = {
-    if (args.length != 2) {
-      System.err.println("Usage: PKGrouping_state <stream.json> 13,19")
+    if (args.length != 3) {
+      System.err.println("Usage: PKGrouping_state <stream.json> 13,19 multiple_tuple")
       System.exit(1)
     }
     val (brokers, topics, batch_duration, relation_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
+    val multiple = Integer.parseInt(args(2))
     val mapperIdSet = (0 until m).map(_.toString)
     val seeds= args(1).split(",").map(_.toInt)
 
@@ -61,7 +62,8 @@ object PKGrouping {
             ret += ((key, ltw - 1) -> pid)
           })
           ltwIndex = ltw
-        } else {
+        }
+        for (a <- 1 to multiple) {
           ret += ((z, ltw) -> x)
         }
       }
@@ -113,12 +115,15 @@ object PKGrouping {
       .flatMap(_._2.split(";"))
       .mapPartitions(preProcess)
       .myMapWithStateWithIndex(spec_pk, relation_num, true)
+      .checkpoint(Seconds(batch_duration))
+
+    val res = messages
       .filter(!_.equals(None))
       .map(_.get)
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(localMerge)
 
-    messages.foreachRDD((rdd, time) => {
+    res.foreachRDD((rdd, time) => {
       rdd.foreach(println)
       println(s"----- $time -----")
       println()
