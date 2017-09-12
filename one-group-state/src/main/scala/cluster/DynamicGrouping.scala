@@ -20,12 +20,13 @@ import scala.util.Try
   */
 object DynamicGrouping {
   def main(args: Array[String]) {
-    if (args.length != 1) {
-      System.err.println("Usage: DynamicGrouping_state <stream.json>")
+    if (args.length != 2) {
+      System.err.println("Usage: DynamicGrouping_state <stream.json> multiple_tuple")
       System.exit(1)
     }
     val (brokers, topics, batch_duration, relation_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
+    val multiple = Integer.parseInt(args(1))
     val mapperIdSet = (0 until m).map(_.toString)
 
     // new 一个 streamingContext
@@ -110,7 +111,8 @@ object DynamicGrouping {
                   ret += ((key, ltw - 1) -> pid)
                 })
                 ltwIndex = ltw
-              } else {
+              }
+              for (a <- 1 to multiple) {
                 ret += ((z, ltw) -> x)
               }
             }
@@ -119,8 +121,11 @@ object DynamicGrouping {
         })
       .cache()
 
-    val res = messages
+    val res1 = messages
       .myMapWithStateWithIndex(spec_pk, relation_num, true)
+      .checkpoint(Seconds(batch_duration))
+
+    val res = res1
       .filter(!_.equals(None))
       .map(_.get)
       .transform(_.partitionBy(new HashPartitioner(r)))
