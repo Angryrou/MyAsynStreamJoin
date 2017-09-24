@@ -45,7 +45,7 @@ object HHGrouping {
     }
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
-    // output: (z, x)
+    // output: (z, 1)
     val preProcess = (iter : Iterator[String]) => {
       val ret = mutable.ListBuffer[(String, Int)]() // return type
       while (iter.hasNext) {
@@ -53,7 +53,7 @@ object HHGrouping {
         val z = tmp(1)
         val x = tmp(2).toInt
         for (a <- 1 to duplicateRate) {
-          ret += (z -> x)
+          ret += (z -> 1)
         }
       }
       ret.iterator

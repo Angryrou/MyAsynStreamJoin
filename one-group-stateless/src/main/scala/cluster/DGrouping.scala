@@ -42,7 +42,7 @@ object DGrouping {
     )
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
-    // output: (z, x)
+    // output: (z, 1)
     val preProcess = (iter: Iterator[String]) => {
       DMate.p1 = myBroadcast.value._1
       DMate.k = myBroadcast.value._2
@@ -55,7 +55,7 @@ object DGrouping {
         val z = tmp(1)
         val x = tmp(2).toInt
         for (a <- 1 to duplicateRate) {
-          ret += (z -> x)
+          ret += (z -> 1)
         }
       }
       ret.iterator
@@ -75,9 +75,15 @@ object DGrouping {
       val ret = mutable.Map[String, Int]()
       while (iter.hasNext) {
         val w = iter.next() // (word, local_count)
-        ret(w._1) = ret.getOrElse(w._1, 0) + w._2
-        MyUtils.sleepNanos(sleep_time_reduce_ns)
+        ret.get(w._1) match {
+          case Some(v) => {
+            ret(w._1) = v + w._2
+            MyUtils.sleepNanos(sleep_time_reduce_ns)
+          }
+          case None => ret(w._1) = w._2
+        }
       }
+
       ret.iterator
     }
 
@@ -100,7 +106,7 @@ object DGrouping {
           val z = tmp(1)
           val x = tmp(2).toInt
           for (a <- 1 to duplicateRate) {
-            ret += (z -> x)
+            ret += (z -> 1)
           }
         }
         ret.iterator
