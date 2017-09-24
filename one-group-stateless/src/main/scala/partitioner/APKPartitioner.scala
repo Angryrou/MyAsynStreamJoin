@@ -1,6 +1,6 @@
 package partitioner
 
-import cluster.APKConfig
+import cluster.APKMate
 import com.google.common.hash.Hashing
 import org.apache.spark.{Partitioner, TaskContext}
 
@@ -25,7 +25,9 @@ class APKPartitioner(partitions : Int) extends Partitioner{
     // 先确定这个 key 来自哪个 partitioner 并把这个 Partitioner 的 hashes 和 mapperStats 都取到
     if (pid != TaskContext.getPartitionId()){
       pid = TaskContext.getPartitionId()
-      head = APKConfig.getHead(pid)
+      head = APKMate.getHead(pid)
+      println("---- print head ----")
+      println(head.mkString(","))
     }
     val mapperStats = mapperStatsSet.getOrElse(pid, new Array[Int](partitions))
 

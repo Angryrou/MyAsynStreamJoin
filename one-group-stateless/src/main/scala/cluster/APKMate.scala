@@ -2,7 +2,7 @@ package cluster
 
 import scala.collection.concurrent.TrieMap
 
-/**
+/**:
   * Created by kawhi on 09/08/2017.
   */
 object APKMate {
@@ -13,6 +13,10 @@ object APKMate {
 
   def updateHeadTable(partitionId: Int, head: Set[String]): Unit = {
     headTable(partitionId) = head
+  }
+
+  def updateHeadTableString(partitionId: Int, headStr: String): Unit = {
+    headTable(partitionId) = headStr.split(",").toSet
   }
 
   def getHead(pid: Int): Set[String] = {

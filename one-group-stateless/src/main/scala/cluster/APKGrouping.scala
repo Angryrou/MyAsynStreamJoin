@@ -15,18 +15,24 @@ import scala.collection.mutable.ArrayBuffer
   */
 object APKGrouping {
   def main(args: Array[String]) {
-    if (args.length != 1) {
-      System.err.println("Usage: APKGrouping_stateless <stream.json>")
+    if (args.length != 2) {
+      System.err.println("Usage: APKGrouping_stateless <stream.json> duplicateRate")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
+    val duplicateRate = Integer.parseInt(args(1))
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("APKGrouping_stateless")
       .set("spark.streaming.stopGracefullyOnShutdown","true")
     val ssc = new StreamingContext(sc, Seconds(batch_duration))
+
+    // Broadcast
+    val myBroadcast = BroadcastWrapper[Set[String]](ssc, Set[String]())
+//    val myBroadcast = BroadcastWrapper[String](ssc, "")
+    //    val strategy = BroadcastWrapper[Int](ssc, 0)
 
     // kafka 配置接入
     val kafkaParams = Map[String, String](
@@ -44,40 +50,61 @@ object APKGrouping {
       ret.iterator
     }
 
+    // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
+    // output: (z, 1)
+    val pre = (id: Int, iter : Iterator[String]) => {
+      val head = myBroadcast.value
+      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
+      println(s"loader-$id, head:${head.mkString(",")}")
+      APKMate.updateHeadTable(id, head)
+      val ret = mutable.ListBuffer[(String, Int)]() // return type
+      while (iter.hasNext) {
+        val tmp = iter.next().split(' ')
+        val z = tmp(1)
+        val x = tmp(2).toInt
+        for (a <- 1 to duplicateRate) {
+          ret += (z -> 1)
+        }
+      }
+      ret.iterator
+//
+//      val head = mutable.Set[String]()
+//      val threshold = 0.2 / m
+//      wc.foreach(kv => {
+//        if (kv._2 * 1.0 / len > threshold) {
+//          head.add(kv._1)
+//        }
+//      })
+//      APKMate.updateHeadTable(id, head.toSet)
+//      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
+//      println(s"loader-$id, head:${head.mkString(",")}, wc.size = ${wc.size}, len = $len")
+//      ret.iterator
+    }
+
+    // r = 1 的 tricky, 如果 r > 1 的话,分别给出每个 Reducer 上的 top-k. 然后给结果.
     val reduceLocalCompute = (iter : Iterator[(String, Int)]) => {
       val ret = mutable.Map[String, Int]()
       var sum = 0
       while (iter.hasNext) {
         val w = iter.next() // (word, local_count)
-        ret(w._1) = ret.getOrElse(w._1, 0) + w._2
-        sum = sum + w._2
-        MyUtils.sleepNanos(sleep_time_reduce_ns)
-      }
-      ret.iterator
-    }
-
-    // "word" => (word, 1) e.g. (A, 10), find the head
-    val pre = (id: Int, iter : Iterator[String]) => {
-      val ret = ArrayBuffer[(String, Int)]()
-      val wc = mutable.Map[String, Int]()
-      var len = 0
-      while (iter.hasNext) {
-        val w = iter.next()
-        wc(w) = wc.getOrElse(w, 0) + 1
-        len += 1
-        ret.append((w, 1))
-      }
-      val head = mutable.Set[String]()
-      val threshold = 0.2 / m
-      wc.foreach(kv => {
-        if (kv._2 * 1.0 / len > threshold) {
-          head.add(kv._1)
+        ret.get(w._1) match {
+          case Some(v) => {
+            ret(w._1) = v + w._2
+            MyUtils.sleepNanos(sleep_time_reduce_ns)
+          }
+          case None => ret(w._1) = w._2
         }
-      })
-      APKMate.updateHeadTable(id, head.toSet)
-      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
-      println(s"loader-$id, head:${head.mkString(",")}, wc.size = ${wc.size}, len = $len")
-      ret.iterator
+        sum = sum + w._2
+      }
+
+      val heavyRet = ret.map(r => (r._1, (r._2, false)))
+
+      for(wc <- heavyRet) {
+        if (wc._2._1 > sum * 0.2 / m) {
+          heavyRet(wc._1) = (wc._2._1, true)
+        }
+      }
+      heavyRet.iterator
     }
 
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
@@ -90,7 +117,26 @@ object APKGrouping {
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(reduceLocalCompute)
 
-    messages.foreachRDD(_.collect())
+    messages.foreachRDD((rdd, time) => {
+      println(s"------ $time ------")
+      val newHead = rdd.aggregate(mutable.Set[String]()) (
+        (init, e) => {
+          println(e)
+          if (e._2._2 == true)
+            init.add(e._1)
+          init
+        },
+        (init, b)=> b
+      ).toSet
+      println(s"newHead: ${newHead.mkString(",")}")
+      myBroadcast.update(newHead, true)
+    })
+
+//    messages.foreachRDD((rdd, time) => {
+//      rdd.foreach(println)
+//      println(s"----- $time -----")
+//      println()
+//    })
     ssc.start()
     ssc.awaitTermination()
   }
