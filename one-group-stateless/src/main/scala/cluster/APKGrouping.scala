@@ -46,9 +46,11 @@ object APKGrouping {
 
     val reduceLocalCompute = (iter : Iterator[(String, Int)]) => {
       val ret = mutable.Map[String, Int]()
+      var sum = 0
       while (iter.hasNext) {
         val w = iter.next() // (word, local_count)
         ret(w._1) = ret.getOrElse(w._1, 0) + w._2
+        sum = sum + w._2
         MyUtils.sleepNanos(sleep_time_reduce_ns)
       }
       ret.iterator
@@ -72,7 +74,7 @@ object APKGrouping {
           head.add(kv._1)
         }
       })
-      APKConfig.updateHeadTable(id, head.toSet)
+      APKMate.updateHeadTable(id, head.toSet)
       // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
       println(s"loader-$id, head:${head.mkString(",")}, wc.size = ${wc.size}, len = $len")
       ret.iterator
