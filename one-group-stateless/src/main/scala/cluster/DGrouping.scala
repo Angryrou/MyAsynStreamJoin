@@ -30,8 +30,8 @@ object DGrouping {
       .set("spark.streaming.stopGracefullyOnShutdown", "true")
     val ssc = new StreamingContext(sc, Seconds(batch_duration))
 
-    // Broadcast
-    val myBroadcast = BroadcastWrapper[(Double, Int)](ssc, (0.0, 600))
+    // Broadcast (M, K, p1, H)
+    val myBroadcast = BroadcastWrapper[(Int, Int, Double, Set[String])](ssc, (450000, 6000, 0.0, Set[String]()))
     //    val strategy = BroadcastWrapper[Int](ssc, 0)
 
 
@@ -43,12 +43,15 @@ object DGrouping {
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
     // output: (z, 1)
-    val preProcess = (iter: Iterator[String]) => {
-      DMate.p1 = myBroadcast.value._1
-      DMate.k = myBroadcast.value._2
+    val preProcess = (id: Int, iter: Iterator[String]) => {
+      DMate.p1 = myBroadcast.value._3
+      DMate.K = myBroadcast.value._2
+      DMate.M = myBroadcast.value._1
       DMate.lambda = lambda
       DMate.m = m
-      //      strategy.update(DMate.getStrategy(), true)
+      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
+      DMate.updateHeadTable(id, myBroadcast.value._4)
+
       val ret = mutable.ListBuffer[(String, Int)]() // return type
       while (iter.hasNext) {
         val tmp = iter.next().split(' ')
@@ -73,6 +76,7 @@ object DGrouping {
 
     val reduceLocalCompute = (iter: Iterator[(String, Int)]) => {
       val ret = mutable.Map[String, Int]()
+      var sum = 0
       while (iter.hasNext) {
         val w = iter.next() // (word, local_count)
         ret.get(w._1) match {
@@ -82,48 +86,53 @@ object DGrouping {
           }
           case None => ret(w._1) = w._2
         }
+        sum = sum + w._2
       }
 
-      ret.iterator
+      val heavyRet = ret.map(r => (r._1, (r._2, false)))
+
+      for(wc <- heavyRet) {
+        if (wc._2._1 > sum * 0.2 / m) {
+          heavyRet(wc._1) = (wc._2._1, true)
+        }
+      }
+      heavyRet.iterator
     }
 
     // (porti, "ts z x;*;*;*")
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
       .flatMap(_._2.split(";")) // "ts z x"
-      .transform((rdd, time) => {
-      rdd.mapPartitions((iter: Iterator[String]) => {
-        DMate.p1 = myBroadcast.value._1
-        DMate.k = myBroadcast.value._2
-        DMate.lambda = lambda
-        DMate.m = m
-        println(s" $time --> ${DMate.p1}, ${DMate.k}")
-
-        //      strategy.update(DMate.getStrategy(), true)
-        val ret = mutable.ListBuffer[(String, Int)]() // return type
-        while (iter.hasNext) {
-          val tmp = iter.next().split(' ')
-          val z = tmp(1)
-          val x = tmp(2).toInt
-          for (a <- 1 to duplicateRate) {
-            ret += (z -> 1)
-          }
-        }
-        ret.iterator
-      })
-    })
-      //      .mapPartitions(preProcess) // "z x"
+      .transform(_.mapPartitionsWithIndex(preProcess))
       .transform(_.partitionBy(new DPartitioner(m)))
       .mapPartitions(mapLocalCompute)
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(reduceLocalCompute)
 
     messages.foreachRDD((rdd, time) => {
-      rdd.foreach(println)
-      val k = rdd.count().toInt
-      val p1 = if (k == 0) 0.0 else rdd.map(_._2).max() * 1.0 / rdd.map(_._2).sum()
-      myBroadcast.update((p1, k), true)
-      println(s" $time ==> $p1, $k")
+      println(s"------ $time ------")
+      // M(total load), K, maxM(k), HeadSet
+
+      val info = rdd.aggregate((0, 0, 0, mutable.Set[String]())) (
+        (init, e) => {
+          println(e)
+          val M = init._1 + e._2._1
+          val K = init._2 + 1
+          val maxK = if(init._3 > e._2._1) init._3 else e._2._1
+          if (e._2._2 == true)
+            init._4.add(e._1)
+          (M, K, maxK, init._4)
+        },
+        (a,b) => b
+      )
+
+      val M = info._1
+      val K = info._2
+      val p1 = info._3 * 1.0 / M
+      val newHead = info._4.toSet
+
+      println(s"M: $M, K: $K, p1: $p1, newHead: ${newHead.mkString(",")}")
+      myBroadcast.update((M, K, p1, newHead), true)
       println()
     })
 

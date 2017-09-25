@@ -1,9 +1,24 @@
 package cluster
 
+import scala.collection.concurrent.TrieMap
+
 /**
   * Created by kawhi on 22/09/2017.
   */
 object DMate {
+
+  // 这个 object 会在 executor 中常驻. 要注意
+  //  当某个 batch 中的某个 partition 没有了信息之后, 会不会因为上一个batch 的信息对该 batch 产生影响
+  //  答案是不会的. 因为如果 partition 没有信息,在做 getPartition 函数中, 并不会有其对应的 pid 出现.
+  private val headTable = TrieMap[Int, Set[String]]()
+
+  def updateHeadTable(partitionId: Int, head: Set[String]): Unit = {
+    headTable(partitionId) = head
+  }
+  def getHead(pid: Int): Set[String] = {
+    headTable(pid)
+  }
+
   var lambda = 0.0 // maximum load / dispersion
   var m = 15 // mapper size
   var M = 150000 * 3
@@ -11,40 +26,6 @@ object DMate {
   private val h_delta = delta.map(x => (1+x) * Math.log(1+x) - x) // h_delta
 
   var p1 = -0.1 // biggest possibility of z
-  var k = 0 // key size
+  var K = 0 // key size
 
-//  private def getDelta():Double = {
-//    val h = 2 * p1 * m * Math.log(m)
-//    var index = 0
-//    val iter = h_delta.toIterator
-//    while(iter.hasNext) {
-//      val a = iter.next() // h(index)
-//      if (a < h) {
-//        index += 1
-//      }
-//      else {
-//        return delta(index)
-//      }
-//    }
-//    return delta(index)
-//  }
-//
-//  def getStrategy():Int = {
-////    val delta = getDelta()
-////    val costHH = (1+delta) / m
-////    val costRR = 1.0 / m + lambda * k * (m - 1)
-////    val costPK = (if (m < 2 / p1) 1.0 / m else costHH / 2) + lambda * (m - 1)
-//
-//    //    val costHH = (1 * 0.6 + delta * 0.4) * M / m
-//    val costHH = (1 + 13 * p1) * M / m
-//    val costRR = 1.0 * M / m + lambda * k * (m - 1)
-//    //    val costPK = (if (m < 2 / p1) M * 1.0 / m else (1 * 0.6+delta * 0.4) / 2 / m) * M + lambda * k
-//    val costPK = (if (m < 2 / p1) M * 1.0 / m else (1 + 13 * p1) * M / m / 2) + lambda * k
-//
-//    // 0 for HH, 1 for PK, 2 for RR
-//    val ret = if (costHH <= costPK && costHH <= costPK) 0 else if (costPK <= costRR) 1 else 2
-//
-//    println(s"p1: $p1, costHH: $costHH, costPK: $costPK, cost RR: $costRR strategy: $ret")
-//    ret
-//  }
 }

@@ -67,18 +67,6 @@ object APKGrouping {
         }
       }
       ret.iterator
-//
-//      val head = mutable.Set[String]()
-//      val threshold = 0.2 / m
-//      wc.foreach(kv => {
-//        if (kv._2 * 1.0 / len > threshold) {
-//          head.add(kv._1)
-//        }
-//      })
-//      APKMate.updateHeadTable(id, head.toSet)
-//      // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
-//      println(s"loader-$id, head:${head.mkString(",")}, wc.size = ${wc.size}, len = $len")
-//      ret.iterator
     }
 
     // r = 1 的 tricky, 如果 r > 1 的话,分别给出每个 Reducer 上的 top-k. 然后给结果.
@@ -110,8 +98,7 @@ object APKGrouping {
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
       .flatMap(_._2.split(";"))
-//      .map(w => (w, 1)) // (word, 1)
-        .transform(_.mapPartitionsWithIndex(pre))
+      .transform(_.mapPartitionsWithIndex(pre))
       .transform(_.partitionBy(new APKPartitioner(m)))
       .mapPartitions(mapLocalCompute)
       .transform(_.partitionBy(new HashPartitioner(r)))
@@ -132,11 +119,6 @@ object APKGrouping {
       myBroadcast.update(newHead, true)
     })
 
-//    messages.foreachRDD((rdd, time) => {
-//      rdd.foreach(println)
-//      println(s"----- $time -----")
-//      println()
-//    })
     ssc.start()
     ssc.awaitTermination()
   }
