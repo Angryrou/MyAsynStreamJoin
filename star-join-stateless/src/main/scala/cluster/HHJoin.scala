@@ -57,19 +57,21 @@ object HHJoin {
     }
 
     val localJoin = (iter: Iterator[(String, (Int, Int))]) => {
-      val globalMap = mutable.Map[String, mutable.Map[Int, Int]]()
+      val globalMap = mutable.Map[String, mutable.Map[Int, BigInt]]()
       while (iter.hasNext){
         val tmp = iter.next() // (z, (portId, x))
-        val keyMap = globalMap.getOrElse(tmp._1, mutable.Map[Int, Int]())
-        keyMap(tmp._2._1) = keyMap.getOrElse(tmp._2._1, 0) + 1
+        val keyMap = globalMap.getOrElse(tmp._1, mutable.Map[Int, BigInt]())
+        keyMap(tmp._2._1) = keyMap.getOrElse(tmp._2._1, BigInt(0)) + BigInt(1)
+        // map delay
+        MyUtils.sleepNanos(sleep_time_map_ns)
         globalMap(tmp._1) = keyMap
       }
       val globalIter = globalMap.toIterator
-      val ret = ArrayBuffer[(String, Int)]()
+      val ret = ArrayBuffer[(String, BigInt)]()
       while (globalIter.hasNext) {
         val tmp = globalIter.next()
         val keyMap = tmp._2
-        val n = keyMap.getOrElse(0, 0) * keyMap.getOrElse(1, 0) * keyMap.getOrElse(2, 0)
+        val n = keyMap.getOrElse(0, BigInt(0)) * keyMap.getOrElse(1, BigInt(0)) * keyMap.getOrElse(2, BigInt(0))
         ret.append((tmp._1, n))
       }
       ret.iterator
