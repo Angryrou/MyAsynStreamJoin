@@ -113,7 +113,7 @@ object RRGrouping {
       .flatMap(_._2.split(";"))
       .mapPartitions(preProcess)
       .myMapWithStateWithIndex(spec_rr, relation_num, true)
-      .checkpoint(Seconds(batch_duration))
+//      .checkpoint(Seconds(batch_duration))
 
     val res = messages
       .filter(!_.equals(None))

@@ -77,9 +77,9 @@ object HHGrouping {
                       state: State[Int]):
     Option[((String, BigInt), Int)] = {
 
-      // state 存的是当前最大值.
-      var mp = state.getOption().getOrElse(0)
-
+      // state 存的是当前Sum.
+//      val mp = state.getOption().getOrElse(new mutable.ArrayBuffer[Int])
+      val mp = state.getOption().getOrElse(0)
       one match {
         case None => {
           // 说明是 trigger 时间信号已经在 StateJoinUtils 里刚刚产生
@@ -92,10 +92,9 @@ object HHGrouping {
         }
         case Some(p) => {
           // 说明是正常数据加入,emitted 数据是 None
-          mp = Math.max(mp, p)
+//          mp = Math.max(mp, p)
           MyUtils.sleepNanos(sleep_time_map_ns)
-
-          state.update(mp)
+          state.update(mp+1)
           return None
         }
       }
@@ -108,7 +107,7 @@ object HHGrouping {
       .flatMap(_._2.split(";"))
       .mapPartitions(preProcess)
       .myMapWithStateWithIndex(spec_hh, relation_num, true)
-      .checkpoint(Seconds(batch_duration))
+//      .checkpoint(Seconds(batch_duration))
 
     val res = messages
       .filter(!_.equals(None))

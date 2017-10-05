@@ -71,24 +71,25 @@ object PKGrouping {
     }
 
     def mappingFuncPK(partitionId: Int, zLtw: (String, BigInt), one: Option[Int],
-                      state: State[Int]):
+                      state: State[mutable.ArrayBuffer[Int]]):
     Option[((String, BigInt), Int)] = {
 
       // state 存的是当前最大值.
-      var mp = state.getOption().getOrElse(0)
+      val mp = state.getOption().getOrElse(new mutable.ArrayBuffer[Int])
       one match {
         case None => {
           // 说明是 trigger 时间信号已经在 StateJoinUtils 里刚刚产生
           // 而且, 该 key 所存的数据的 logical-time-window 的时间 <= trigger (由 MyMapWithStateWithIndexRDD 保证)
           // state 的数据已经可以 emit 并删除
           val trigger = MyStateJoinUtils.getPartitionTriggers(partitionId)
-          val ret = ((zLtw._1, zLtw._2), mp)
+          val ret = ((zLtw._1, zLtw._2), mp.length)
           state.remove()
           return Some(ret)
         }
         case Some(p) => {
           // 说明是正常数据加入,emitted 数据是 None
-          mp = Math.max(mp, p)
+//          mp = Math.max(mp, p)
+          mp.append(p)
           MyUtils.sleepNanos(sleep_time_map_ns)
           state.update(mp)
           return None
