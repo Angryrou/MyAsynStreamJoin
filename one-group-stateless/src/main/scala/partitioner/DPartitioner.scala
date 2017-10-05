@@ -11,11 +11,11 @@ import scala.collection.mutable
 /**
   * Created by kawhi on 09/08/2017.
   */
-class DPartitioner(partitions: Int) extends Partitioner {
+class DPartitioner(partitions: Int, seeds: Array[Int]) extends Partitioner {
 
   // For APK
   // 每个 executor 都会 new 一个该类,所以该类的内容会被多个partition用到.
-  private val tailSeeds = Array[Int](1,2)
+  private val tailSeeds = seeds
   private val tailHashes = tailSeeds.map(Hashing.murmur3_128(_))
   //  private val headHashes = seeds.map(Hashing.murmur3_128(_))
   private var head = Set[String]()
@@ -23,14 +23,24 @@ class DPartitioner(partitions: Int) extends Partitioner {
   private var pid = -1
 
   // for Hash
-  private val hash = Hashing.murmur3_128(1)
+  private val hash = Hashing.murmur3_128(seeds(0))
 
   // for Dynamic
   private var strategyId = 0
 
   private def getStrategy(M:Int, K:Int, m:Int, p1: Double, lambda: Double, headNum: Int):Int = {
+    //  最坏情况
     //    val costHH = (1 * 0.6 + delta * 0.4) * M / m
-    val costHH = (1 + 16 * p1) * M / m
+    //  zipf m = 15
+    val costHH = (13.26 * p1 + 1.02) * M / m
+    // zipf m = 45
+    //    val costHH = (1.3 + 46.4 * p1) * M / m
+    // zipf m = 135
+//    val costHH = (127.16 * p1 + 1.63) * M/m
+    // zipf m = 5
+//    val costHH = (2.68 * p1 + 1) * M/m
+    // zipf m = 75
+//    val costHH = (78.46 * p1 + 1) * M/m
     val costAPK = M/m + lambda * (K + headNum * (m - 2))
 
     // 0 for HH, 1 for APK

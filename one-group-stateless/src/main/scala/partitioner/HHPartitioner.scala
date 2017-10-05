@@ -9,8 +9,6 @@ import scala.collection.mutable
   * Created by kawhi on 10/08/2017.
   */
 class HHPartitioner(partitions : Int, seed: Int) extends Partitioner{
-  // 每个
-  private val mapperStatsSet = mutable.Map[Int, Array[Int]]() // 每个 executor 中的每个 partition 都有一个维护自己的 Array
   private val hash = Hashing.murmur3_128(seed)
 
   def numPartitions : Int = partitions

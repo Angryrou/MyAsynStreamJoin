@@ -14,16 +14,17 @@ import scala.collection.mutable
   */
 object DGrouping {
   def main(args: Array[String]) {
-    if (args.length != 3) {
-      System.err.println("Usage: DGrouping_stateless <stream.json> duplicateRate lambda")
+    if (args.length != 4) {
+      System.err.println("Usage: DGrouping_stateless <stream.json> 13,19 duplicateRate lambda")
       System.exit(1)
     }
 
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
-    val duplicateRate = Integer.parseInt(args(1))
-    val lambda = args(2).toDouble
+    val seeds= args(1).split(",").map(_.toInt)
+    val duplicateRate = Integer.parseInt(args(2))
+    val lambda = args(3).toDouble
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("DGrouping_stateless")
@@ -31,7 +32,7 @@ object DGrouping {
     val ssc = new StreamingContext(sc, Seconds(batch_duration))
 
     // Broadcast (M, K, p1, H)
-    val myBroadcast = BroadcastWrapper[(Int, Int, Double, Set[String])](ssc, (450000, 6000, 0.0, Set[String]()))
+    val myBroadcast = BroadcastWrapper[(Int, Int, Double, Set[String])](ssc, (150000, 3000, 0.0, Set[String]()))
     //    val strategy = BroadcastWrapper[Int](ssc, 0)
 
 
@@ -43,7 +44,7 @@ object DGrouping {
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
     // output: (z, 1)
-    val preProcess = (id: Int, iter: Iterator[String]) => {
+    val preProcess = (id: Int, iter: Iterator[(String, String)]) => {
       DMate.p1 = myBroadcast.value._3
       DMate.K = myBroadcast.value._2
       DMate.M = myBroadcast.value._1
@@ -54,11 +55,14 @@ object DGrouping {
 
       val ret = mutable.ListBuffer[(String, Int)]() // return type
       while (iter.hasNext) {
-        val tmp = iter.next().split(' ')
-        val z = tmp(1)
-        val x = tmp(2).toInt
-        for (a <- 1 to duplicateRate) {
-          ret += (z -> 1)
+        val tmp10 = iter.next()._2.split(";")
+        for (t <- tmp10) {
+          val tmp = t.split(' ')
+          val z = tmp(1)
+          //        val x = tmp(2).toInt
+          for (a <- 1 to duplicateRate) {
+            ret += (z -> 1)
+          }
         }
       }
       ret.iterator
@@ -102,9 +106,9 @@ object DGrouping {
     // (porti, "ts z x;*;*;*")
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
-      .flatMap(_._2.split(";")) // "ts z x"
+//      .flatMap(_._2.split(";")) // "ts z x"
       .transform(_.mapPartitionsWithIndex(preProcess))
-      .transform(_.partitionBy(new DPartitioner(m)))
+      .transform(_.partitionBy(new DPartitioner(m, seeds)))
       .mapPartitions(mapLocalCompute)
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(reduceLocalCompute)

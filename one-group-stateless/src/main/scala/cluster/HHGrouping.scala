@@ -14,14 +14,15 @@ import scala.collection.mutable
   */
 object HHGrouping {
   def main(args: Array[String]) {
-    if (args.length != 2) {
-      System.err.println("Usage: HHGrouping_stateless <stream.json> duplicateRate")
+    if (args.length != 3) {
+      System.err.println("Usage: HHGrouping_stateless <stream.json> seed duplicateRate")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
-    val duplicateRate = Integer.parseInt(args(1))
+    val seed = Integer.parseInt(args(1))
+    val duplicateRate = Integer.parseInt(args(2))
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("HHGrouping_stateless")
@@ -46,14 +47,17 @@ object HHGrouping {
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
     // output: (z, 1)
-    val preProcess = (iter : Iterator[String]) => {
+    val preProcess = (iter : Iterator[(String, String)]) => {
       val ret = mutable.ListBuffer[(String, Int)]() // return type
       while (iter.hasNext) {
-        val tmp = iter.next().split(' ')
-        val z = tmp(1)
-        val x = tmp(2).toInt
-        for (a <- 1 to duplicateRate) {
-          ret += (z -> 1)
+        val tmp10 = iter.next()._2.split(";")
+        for (t <- tmp10) {
+          val tmp = t.split(' ')
+          val z = tmp(1)
+          //        val x = tmp(2).toInt
+          for (a <- 1 to duplicateRate) {
+            ret += (z -> 1)
+          }
         }
       }
       ret.iterator
@@ -62,9 +66,9 @@ object HHGrouping {
     // (porti, "ts z x;*;*;*")
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
-      .flatMap(_._2.split(";")) // "ts z x"
+//      .flatMap(_._2.split(";")) // "ts z x"
       .mapPartitions(preProcess)
-      .transform(_.partitionBy(new HHPartitioner(m, 1)))
+      .transform(_.partitionBy(new HHPartitioner(m, seed)))
       .mapPartitions(mapLocalCompute)
 
     messages.foreachRDD((rdd, time) => {

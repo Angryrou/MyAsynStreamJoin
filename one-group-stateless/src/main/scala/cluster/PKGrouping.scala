@@ -15,14 +15,14 @@ import scala.collection.mutable
 object PKGrouping {
   def main(args: Array[String]) {
     if (args.length != 2) {
-      System.err.println("Usage: PKGrouping_stateless <stream.json> duplicateRate")
+      System.err.println("Usage: PKGrouping_stateless <stream.json> 13,19 duplicateRate")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
-    val seeds = Array(1,2)
-    val duplicateRate = Integer.parseInt(args(1))
+    val seeds= args(1).split(",").map(_.toInt)
+    val duplicateRate = Integer.parseInt(args(2))
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("PKGrouping_stateless")

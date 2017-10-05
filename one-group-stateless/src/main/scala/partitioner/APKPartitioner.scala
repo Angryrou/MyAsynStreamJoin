@@ -9,10 +9,10 @@ import scala.collection.mutable
 /**
   * Created by kawhi on 09/08/2017.
   */
-class APKPartitioner(partitions : Int) extends Partitioner{
+class APKPartitioner(partitions : Int, seeds : Array[Int]) extends Partitioner{
 
   // 每个 executor 都会 new 一个该类,所以该类的内容会被多个partition用到.
-  private val tailSeeds = Array[Int](1,2)
+  private val tailSeeds = seeds
   private val tailHashes = tailSeeds.map(Hashing.murmur3_128(_))
 //  private val headHashes = seeds.map(Hashing.murmur3_128(_))
   private var head = Set[String]()

@@ -15,14 +15,15 @@ import scala.collection.mutable.ArrayBuffer
   */
 object APKGrouping {
   def main(args: Array[String]) {
-    if (args.length != 2) {
-      System.err.println("Usage: APKGrouping_stateless <stream.json> duplicateRate")
+    if (args.length != 3) {
+      System.err.println("Usage: APKGrouping_stateless <stream.json> 1,2 duplicateRate")
       System.exit(1)
     }
     // 参数读取
     val (brokers, topics, batch_duration, ports_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
-    val duplicateRate = Integer.parseInt(args(1))
+    val duplicateRate = Integer.parseInt(args(2))
+    val seeds= args(1).split(",").map(_.toInt)
 
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("APKGrouping_stateless")
@@ -52,18 +53,21 @@ object APKGrouping {
 
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
     // output: (z, 1)
-    val pre = (id: Int, iter : Iterator[String]) => {
+    val pre = (id: Int, iter : Iterator[(String, String)]) => {
       val head = myBroadcast.value
       // 将新head存入;每个executor可能会有多个partition,所以要按照 partition id 存储
       println(s"loader-$id, head:${head.mkString(",")}")
       APKMate.updateHeadTable(id, head)
       val ret = mutable.ListBuffer[(String, Int)]() // return type
       while (iter.hasNext) {
-        val tmp = iter.next().split(' ')
-        val z = tmp(1)
-        val x = tmp(2).toInt
-        for (a <- 1 to duplicateRate) {
-          ret += (z -> 1)
+        val tmp10 = iter.next()._2.split(";")
+        for (t <- tmp10) {
+          val tmp = t.split(' ')
+          val z = tmp(1)
+          //        val x = tmp(2).toInt
+          for (a <- 1 to duplicateRate) {
+            ret += (z -> 1)
+          }
         }
       }
       ret.iterator
@@ -97,9 +101,9 @@ object APKGrouping {
 
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
-      .flatMap(_._2.split(";"))
+//      .flatMap(_._2.split(";"))
       .transform(_.mapPartitionsWithIndex(pre))
-      .transform(_.partitionBy(new APKPartitioner(m)))
+      .transform(_.partitionBy(new APKPartitioner(m, seeds)))
       .mapPartitions(mapLocalCompute)
       .transform(_.partitionBy(new HashPartitioner(r)))
       .mapPartitions(reduceLocalCompute)
