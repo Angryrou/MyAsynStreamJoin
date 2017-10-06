@@ -2,23 +2,23 @@ package cluster
 
 import kafka.serializer.StringDecoder
 import myutils.MyUtils
-import org.apache.spark.streaming.kafka.KafkaUtils
-import org.apache.spark.{HashPartitioner, SparkConf, TaskContext}
-import org.apache.spark.streaming.{MyStateSpecWithIndex, Seconds, State, StreamingContext}
-import partitioner.{StateAPKPartitioner, StatePartialKeyForOptimizedPartitioner}
-import timetable.MyStateJoinUtils
 import org.apache.spark.streaming.dstream.MyPairDStreamFunctions._
+import org.apache.spark.streaming.kafka.KafkaUtils
+import org.apache.spark.streaming.{MyStateSpecWithIndex, Seconds, State, StreamingContext}
+import org.apache.spark.{HashPartitioner, SparkConf}
+import partitioner.StateDPartitioner
+import timetable.MyStateJoinUtils
 
 import scala.collection.mutable
 
 /**
   * Created by kawhi on 03/10/2017.
   */
-object APKGrouping {
+object NaiveDGrouping {
 
   def main(args: Array[String]) {
-    if (args.length != 3) {
-      System.err.println("Usage: APKGrouping_state <stream.json> 1,2 multiple_tuple")
+    if (args.length != 4) {
+      System.err.println("Usage: NaiveDGrouping_state <stream.json> 1,2 multiple_tuple lambda")
       System.exit(1)
     }
     // 参数读取
@@ -26,17 +26,20 @@ object APKGrouping {
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
     val multiple = Integer.parseInt(args(2)) // 把 tuple 放大到多少条
     val seeds= args(1).split(",").map(_.toInt)
+    val lambda = args(3).toDouble
 
     val mapperIdSet = (0 until m).map(_.toString)
     // new 一个 streamingContext
-    val sc = new SparkConf().setAppName("APKGrouping_state")
+    val sc = new SparkConf().setAppName("NaiveDKGrouping_state")
         .set("spark.streaming.stopGracefullyOnShutdown","true")
     val ssc = new StreamingContext(sc, Seconds(batch_duration))
     ssc.checkpoint(path + "/state/checkpoint")
 
-    // Broadcast
-    val myBroadcastUnfinished = BroadcastWrapper[Map[BigInt, Set[String]]](ssc, Map[BigInt, Set[String]]())
-    val myBroadcastJustFinished = BroadcastWrapper[Map[BigInt, Set[String]]](ssc, Map[BigInt, Set[String]]())
+    // Broadcast {etw -> (strategyId, M, K, p1, H)}
+    val myBroadcastUnfinished = BroadcastWrapper[Map[BigInt, (Int, Int, Int, Double, Set[String])]](
+      ssc, Map[BigInt, (Int, Int, Int, Double, Set[String])]())
+    val myBroadcastJustFinished = BroadcastWrapper[Map[BigInt, (Int, Int, Int, Double, Set[String])]](
+      ssc, Map[BigInt, (Int, Int, Int, Double, Set[String])]())
 
     // kafka 配置接入
     val kafkaParams = Map[String, String](
@@ -44,19 +47,39 @@ object APKGrouping {
       "auto.offset.reset" -> kafka_offset
     )
 
+    def getStrategy(M:Int, K:Int, m:Int, p1: Double, lambda: Double, headNum: Int):Int = {
+      //  最坏情况
+      //    val costHH = (1 * 0.6 + delta * 0.4) * M / m
+      //  zipf m = 15
+      val costHH = (13.26 * p1 + 1.02) * M / m
+      // zipf m = 45
+      //    val costHH = (1.3 + 46.4 * p1) * M / m
+      // zipf m = 135
+      //    val costHH = (127.16 * p1 + 1.63) * M/m
+      // zipf m = 5
+      //    val costHH = (2.68 * p1 + 1) * M/m
+      // zipf m = 75
+      //    val costHH = (78.46 * p1 + 1) * M/m
+      val costAPK = M/m + lambda * (K + headNum * (m - 2))
+
+      // 0 for HH, 1 for APK
+      val ret = if (costHH <= costAPK) 0 else 1
+      println(s"p1: $p1,  costHH: $costHH, costAPK: $costAPK, strategy: $ret")
+      ret
+    }
+
     // input: "timestamp AAA 999" (ts, z, x) 均来自同一个 relation,所以 timestamp 的数据有序
     // output: ((z, ltw), x) or ((partitionId, ltw), x)
     //        1. signal: new time comes
     //        2. time data
     val pre = (id: Int, iter : Iterator[(String, String)]) => {
+      // 这里只需要对所有新来的 etw 进行策略的分配
 
       // 两个value 的 map 一定不重复,所以可以直接 ++ 连接.否自会有覆盖.
-      val etwHead = mutable.Map() ++ myBroadcastUnfinished.value ++ myBroadcastJustFinished.value
+      val etwInfo = mutable.Map() ++ myBroadcastUnfinished.value ++ myBroadcastJustFinished.value
       println(s"loader-$id: ")
-      for (eh <- etwHead) {
-        println(s"etw ${eh._1}: ${eh._2.mkString(",")}")
-      }
 
+//      DMate.updateHeadTable(id, etwHead)
 
       val ret = mutable.ListBuffer[((String, BigInt), Int)]() // return type
       var ltwIndex:BigInt = 0
@@ -78,12 +101,14 @@ object APKGrouping {
               ret += ((key, ltw - 1) -> id)
             })
             ltwIndex = ltw
-            if (!etwHead.contains(ltw)) {
-              if (etwHead.isEmpty) {
-                etwHead(ltw) = Set[String]()
+            if (!etwInfo.contains(ltw)) {
+              if (etwInfo.isEmpty) {
+                etwInfo(ltw) = (0, 150000, 3000, 0.0, Set[String]())
               } else {
-                val estimateEtw = etwHead.keys.max
-                etwHead(ltw) = etwHead(estimateEtw)
+                val estimateEtw = etwInfo.keys.max
+                val (_, me, ke, p1e, he) = etwInfo(estimateEtw)
+                val strategyIde = getStrategy(me, ke, m, p1e, lambda, he.size)
+                etwInfo(ltw) = (strategyIde, me, ke, p1e, he)
               }
             }
           }
@@ -92,13 +117,11 @@ object APKGrouping {
           }
         }
       }
-
-      APKMate.updateHeadTable(id, etwHead.toMap)
-
+      DMate.updateInfoTable(id, etwInfo.toMap.map(kv => (kv._1, (kv._2._1, kv._2._5))))
       ret.iterator
     }
 
-    def mappingFuncAPK(partitionId: Int, zLtw: (String, BigInt), one: Option[Int],
+    def mappingFuncD(partitionId: Int, zLtw: (String, BigInt), one: Option[Int],
                       state: State[Int]):
     Option[((String, BigInt), Int)] = {
 
@@ -171,66 +194,67 @@ object APKGrouping {
       ret.iterator
     }
 
-    val spec_apk = MyStateSpecWithIndex.function(mappingFuncAPK _)
-      .partitioner(new StateAPKPartitioner(m, seeds))
+    val spec_d = MyStateSpecWithIndex.function(mappingFuncD _)
+      .partitioner(new StateDPartitioner(m, seeds))
 
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, topics)
       //      .flatMap(_._2.split(";"))
       .transform(_.mapPartitionsWithIndex(pre))
-      .myMapWithStateWithIndex(spec_apk, relation_num, true)
+      .myMapWithStateWithIndex(spec_d, relation_num, true)
 
     messages.stateSnapshots().foreachRDD((rdd, time) => {
       // stateSnapShots() 类型为 (z, etw) -> stateValue
       // 获得尚未完成的地方的 key distribution
       println(s"----- stateSnapshots $time -----")
-      val rdd1 = rdd.partitionBy(new HashPartitioner(r))
-        .mapPartitions(localMergeS)
-      val (newEtwHead, dispersionS) = rdd1.aggregate(mutable.Map[BigInt, mutable.Set[String]](), 0)(
+      val rdd1 = rdd.partitionBy(new HashPartitioner(r)).mapPartitions(localMergeS)
+
+      // input e: {(z, etw) -> local sum}
+      // output {etw -> (M(total load), K, maxM, HeadSet)}, Dispersion
+      val (newEtwInfo, dispersionS) = rdd1.aggregate(mutable.Map[BigInt, (Int, Int, Int, mutable.Set[String])](), 0)(
         (init, e) => {
           // 先获得 e 的信息看看是哪个 etw 的
           val ((z, etw), zSum) = e
+          val (mm, k, maxM, headSet) = init._1.getOrElse(etw, (0, 0, 0, mutable.Set[String]()))
           // 对于 这个 etw 上的 这个 zsum 值判断是否是 heavyhitter
           if (zSum > ReduceMate.globalSumS.getOrElse(etw, 0) * 0.2 / m) {
-            val a = init._1.getOrElse(etw, mutable.Set[String]())
-            a.add(z)
-            init._1(etw) = a
+            val info = init._1.getOrElse(etw, mutable.Set[String]())
+            headSet.add(z)
           }
           val d = ReduceMate.dispersionS
+          init._1(etw) = (mm + zSum, k + 1, Math.max(maxM, zSum), headSet)
           (init._1, d)
         }
         , (init, b) => b
       )
-//      val newEtwH = newEtwHead.map(kv => (kv._1, kv._2.toSet)).toMap
 
-      // heavy hitter priority
-      // {etw -> Set}
-      val oldEtwH = myBroadcastJustFinished.value ++ myBroadcastUnfinished.value
+      // {etw -> (strategyId, HeavyhitterSet)}
+      val etwOldInfo = (myBroadcastUnfinished.value ++ myBroadcastJustFinished.value).map(kv => (kv._1, (kv._2._1, kv._2._5)))
 
-      // {etw -> Set}
-      val newEtwH = newEtwHead.map(kv => {
-        val oldSet = oldEtwH.getOrElse(kv._1, Set())
-        val newSet = kv._2
-        for( h <- oldSet){
-          if(!newSet.contains(h)) {
-            newSet.add(h)
+//      {etw -> (strategyId, M, K, p1, H)}
+      val etwRet = newEtwInfo.map(kv => {
+        val etw = kv._1
+        val (mm, k, maxK, preheadSet) = kv._2
+        val p1 = maxK * 1.0 / mm
+        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        for (h <- oldSet) {
+          // heavy hitter priority
+          if (!preheadSet.contains(h)) {
+            preheadSet.add(h)
           }
         }
-        (kv._1, newSet.toSet)
+  //    strategy priority
+   //     val strategyId = Math.max(getStrategy(mm, k, m, p1, lambda, preheadSet.size), oldStrategy)
+
+        (etw, (oldStrategy, mm, k, p1, preheadSet.toSet))
       }).toMap
 
-
-      //      val newEtwH = newEtwHead.map(kv => (kv._1, kv._2))
-      //      for (eh <- newEtwH) {
-      //        val oldSet = oldEtwH.getOrElse(eh._1, Set())
-      //
-      //      }
-
-      for (eh <- newEtwHead) {
-        println(s"state: etw ${eh._1}: ${eh._2.mkString(",")}")
+      for (eh <- etwRet) {
+        println(s"state: etw -> ${eh._1}, predict StrategyId -> ${eh._2._1}, " +
+          s"M: ${eh._2._2}, K: ${eh._2._3}, p1: ${eh._2._4}, heavy hitters: ${eh._2._5.mkString(",")}")
       }
       println(s"DispersionS: $dispersionS")
-      myBroadcastUnfinished.update(newEtwH, true)
+      myBroadcastUnfinished.update(etwRet, true)
       println()
     })
 
@@ -241,50 +265,51 @@ object APKGrouping {
         .partitionBy(new HashPartitioner(r))
         .mapPartitions(localMergeE)
       // (z, etw) -> stateValue
-      val (newEtwHead, dispersionE) = rdd1.aggregate(mutable.Map[BigInt, mutable.Set[String]](), 0)(
+
+      // input e: {(z, etw) -> local sum}
+      // output {etw -> (M(total load), K, maxM, HeadSet)}, Dispersion
+      val (newEtwInfo, dispersionE) = rdd1.aggregate(mutable.Map[BigInt, (Int, Int, Int, mutable.Set[String])](), 0)(
         (init, e) => {
           // 先获得 e 的信息看看是哪个 etw 的
           val ((z, etw), zSum) = e
+          val (mm, k, maxM, headSet) = init._1.getOrElse(etw, (0, 0, 0, mutable.Set[String]()))
           // 对于 这个 etw 上的 这个 zsum 值判断是否是 heavyhitter
           if (zSum > ReduceMate.globalSumE.getOrElse(etw, 0) * 0.2 / m) {
-            val a = init._1.getOrElse(etw, mutable.Set[String]())
-            a.add(z)
-            init._1(etw) = a
+            val info = init._1.getOrElse(etw, mutable.Set[String]())
+            headSet.add(z)
           }
           val d = ReduceMate.dispersionE
+          init._1(etw) = (mm + zSum, k + 1, Math.max(maxM, zSum), headSet)
           (init._1, d)
         }
         , (init, b) => b
       )
 
-      // heavy hitter priority
-      // {etw -> Set}
-      val oldEtwH = myBroadcastJustFinished.value ++ myBroadcastUnfinished.value
+      val etwOldInfo = (myBroadcastUnfinished.value ++ myBroadcastJustFinished.value).map(kv => (kv._1, (kv._2._1, kv._2._5)))
 
-      // {etw -> Set}
-      val newEtwH = newEtwHead.map(kv => {
-        val oldSet = oldEtwH.getOrElse(kv._1, Set())
-        val newSet = kv._2
-        for( h <- oldSet){
-          if(!newSet.contains(h)) {
-            newSet.add(h)
+      //      {etw -> (strategyId, M, K, p1, H)}
+      val etwRet = newEtwInfo.map(kv => {
+        val etw = kv._1
+        val (mm, k, maxK, preheadSet) = kv._2
+        val p1 = maxK * 1.0 / mm
+        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        for (h <- oldSet) {
+          // heavy hitter priority
+          if (!preheadSet.contains(h)) {
+            preheadSet.add(h)
           }
         }
-        (kv._1, newSet.toSet)
+        //    strategy priority
+//        val strategyId = Math.max(getStrategy(mm, k, m, p1, lambda, preheadSet.size), oldStrategy)
+        (etw, (oldStrategy, mm, k, p1, preheadSet.toSet))
       }).toMap
 
-
-//      val newEtwH = newEtwHead.map(kv => (kv._1, kv._2))
-//      for (eh <- newEtwH) {
-//        val oldSet = oldEtwH.getOrElse(eh._1, Set())
-//
-//      }
-
-      for (eh <- newEtwHead) {
-        println(s"emit: etw ${eh._1}: ${eh._2.mkString(",")}")
+      for (eh <- etwRet) {
+        println(s"emit: etw -> ${eh._1}, predict StrategyId -> ${eh._2._1}, " +
+          s"M: ${eh._2._2}, K: ${eh._2._3}, p1: ${eh._2._4}, heavy hitters: ${eh._2._5.mkString(",")}")
       }
       println(s"DispersionE: $dispersionE")
-      myBroadcastJustFinished.update(newEtwH, true)
+      myBroadcastUnfinished.update(etwRet, true)
       println()
     })
 
