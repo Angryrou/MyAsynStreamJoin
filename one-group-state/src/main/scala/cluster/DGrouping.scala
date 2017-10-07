@@ -25,13 +25,14 @@ object DGrouping {
     val (brokers, topics, batch_duration, relation_num, m, r, kafka_offset, path, lgw, key_space, sleep_time_map_ns,
     sleep_time_reduce_ns) = MyUtils.getFromJson(args(0))
     val multiple = Integer.parseInt(args(2)) // 把 tuple 放大到多少条
-    val seeds= args(1).split(",").map(_.toInt)
+    val seeds = args(1).split(",").map(_.toInt)
     val lambda = args(3).toDouble
+    val batchSpan = Math.ceil(lgw / batch_duration / 1000.0)
 
     val mapperIdSet = (0 until m).map(_.toString)
     // new 一个 streamingContext
     val sc = new SparkConf().setAppName("DKGrouping_state")
-        .set("spark.streaming.stopGracefullyOnShutdown","true")
+      .set("spark.streaming.stopGracefullyOnShutdown", "true")
     val ssc = new StreamingContext(sc, Seconds(batch_duration))
     ssc.checkpoint(path + "/state/checkpoint")
 
@@ -47,7 +48,7 @@ object DGrouping {
       "auto.offset.reset" -> kafka_offset
     )
 
-    def getStrategy(M:Int, K:Int, m:Int, p1: Double, lambda: Double, headNum: Int):Int = {
+    def getStrategy(etw: BigInt, M: Int, K: Int, m: Int, p1: Double, lambda: Double, headNum: Int): Int = {
       //  最坏情况
       //    val costHH = (1 * 0.6 + delta * 0.4) * M / m
       //  zipf m = 15
@@ -60,11 +61,11 @@ object DGrouping {
       //    val costHH = (2.68 * p1 + 1) * M/m
       // zipf m = 75
       //    val costHH = (78.46 * p1 + 1) * M/m
-      val costAPK = M/m + lambda * (K + headNum * (m - 2))
+      val costAPK = M / m + lambda * (K + headNum * (m - 2))
 
       // 0 for HH, 1 for APK
       val ret = if (costHH <= costAPK) 0 else 1
-      println(s"p1: $p1,  costHH: $costHH, costAPK: $costAPK, strategy: $ret")
+      println(s"etw: $etw  -> p1: $p1,  costHH: $costHH, costAPK: $costAPK, strategy: $ret")
       ret
     }
 
@@ -72,24 +73,24 @@ object DGrouping {
     // output: ((z, ltw), x) or ((partitionId, ltw), x)
     //        1. signal: new time comes
     //        2. time data
-    val pre = (id: Int, iter : Iterator[(String, String)]) => {
+    val pre = (id: Int, iter: Iterator[(String, String)]) => {
       // 这里只需要对所有新来的 etw 进行策略的分配
 
       // 两个value 的 map 一定不重复,所以可以直接 ++ 连接.否自会有覆盖.
       val etwInfo = mutable.Map() ++ myBroadcastUnfinished.value ++ myBroadcastJustFinished.value
       println(s"loader-$id: ")
 
-//      DMate.updateHeadTable(id, etwHead)
+      //      DMate.updateHeadTable(id, etwHead)
 
       val ret = mutable.ListBuffer[((String, BigInt), Int)]() // return type
-      var ltwIndex:BigInt = 0
+      var ltwIndex: BigInt = 0
       while (iter.hasNext) {
         val tmp10 = iter.next()._2.split(";")
         for (t <- tmp10) {
           val tmp = t.split(' ')
           val ltw = BigInt(tmp(0)) / lgw
           val z = tmp(1)
-//          val x = tmp(2).toInt
+          //          val x = tmp(2).toInt
 
           // ltwIndex 表示已经读入的最大时间, ltw 表示最新读入的时间
           // ltwIndex < ltw 表示读到新时间的数据了
@@ -103,12 +104,20 @@ object DGrouping {
             ltwIndex = ltw
             if (!etwInfo.contains(ltw)) {
               if (etwInfo.isEmpty) {
-                etwInfo(ltw) = (0, 150000, 3000, 0.0, Set[String]())
+                // 两个 -1 和  0.0 处无所谓,因为这个数据不会被发到 DMate
+                etwInfo(ltw) = (0, -1, -1, 0.0, Set[String]())
               } else {
                 val estimateEtw = etwInfo.keys.max
                 val (_, me, ke, p1e, he) = etwInfo(estimateEtw)
-                val strategyIde = getStrategy(me, ke, m, p1e, lambda, he.size)
-                etwInfo(ltw) = (strategyIde, me, ke, p1e, he)
+                // 在估计下一个新的时间的时候 用总量 M / m  去估计
+                val strategyIde = getStrategy(ltw, (me / batchSpan).toInt, ke, m, p1e, lambda, he.size)
+                // me, ke, p1e 倒是无所谓,因为不会传给 DMate
+
+                if (strategyIde == 0) {
+                  etwInfo(ltw) = (strategyIde, -1, ke, p1e, Set())
+                } else {
+                  etwInfo(ltw) = (strategyIde, -1, ke, p1e, he)
+                }
               }
             }
           }
@@ -122,11 +131,11 @@ object DGrouping {
     }
 
     def mappingFuncD(partitionId: Int, zLtw: (String, BigInt), one: Option[Int],
-                      state: State[Int]):
+                     state: State[Int]):
     Option[((String, BigInt), Int)] = {
 
       // state 存的是当前最大值.
-//      val mp = state.getOption().getOrElse(new mutable.ArrayBuffer[Int])
+      //      val mp = state.getOption().getOrElse(new mutable.ArrayBuffer[Int])
       val mp = state.getOption().getOrElse(0)
       one match {
         case None => {
@@ -148,7 +157,8 @@ object DGrouping {
       }
     }
 
-    val localMergeE = (iter: Iterator[((String, BigInt), Int)]) => { // ((z, ltw), sum)
+    val localMergeE = (iter: Iterator[((String, BigInt), Int)]) => {
+      // ((z, ltw), sum)
       val ret = mutable.Map[(String, BigInt), Int]()
       val etwSum = mutable.Map[BigInt, Int]()
 
@@ -171,7 +181,8 @@ object DGrouping {
       ret.iterator
     }
 
-    val localMergeS = (iter: Iterator[((String, BigInt), Int)]) => { // ((z, ltw), sum)
+    val localMergeS = (iter: Iterator[((String, BigInt), Int)]) => {
+      // ((z, ltw), sum)
       val ret = mutable.Map[(String, BigInt), Int]()
       val etwSum = mutable.Map[BigInt, Int]()
 
@@ -229,22 +240,40 @@ object DGrouping {
       )
 
       // {etw -> (strategyId, HeavyhitterSet)}
-      val etwOldInfo = (myBroadcastUnfinished.value ++ myBroadcastJustFinished.value).map(kv => (kv._1, (kv._2._1, kv._2._5)))
+      val etwOldInfo = myBroadcastUnfinished.value ++ myBroadcastJustFinished.value
 
-//      {etw -> (strategyId, M, K, p1, H)}
+      //      {etw -> (strategyId, M, K, p1, H)}
       val etwRet = newEtwInfo.map(kv => {
         val etw = kv._1
         val (mm, k, maxK, preheadSet) = kv._2
         val p1 = maxK * 1.0 / mm
-        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        //        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        val (oldStrategy, oldM, _, _, oldSet) = etwOldInfo.getOrElse(etw,
+          if (etwOldInfo.isEmpty) {
+            // 3000 和 0.0 不会被用到这里
+            (0, 0, 3000, 0.0, Set[String]())
+          } else {
+            val estimateEtw = etwOldInfo.keys.max
+            val (_, me, ke, p1e, he) = etwOldInfo(estimateEtw)
+            val strategyIde = getStrategy(etw, (me / batchSpan).toInt, ke, m, p1e, lambda, he.size)
+            if (strategyIde == 0) {
+              (strategyIde, 0, ke, p1e, Set())
+            } else {
+              (strategyIde, 0, ke, p1e, he)
+            }
+            //            (0, Set[String]())
+          }
+        )
+
+
         for (h <- oldSet) {
           // heavy hitter priority
           if (!preheadSet.contains(h)) {
             preheadSet.add(h)
           }
         }
-  //    strategy priority
-        val strategyId = Math.max(getStrategy(mm, k, m, p1, lambda, preheadSet.size), oldStrategy)
+        //    strategy priority
+        val strategyId = Math.max(getStrategy(etw, mm - oldM, k, m, p1, lambda, preheadSet.size), oldStrategy)
 
         (etw, (strategyId, mm, k, p1, preheadSet.toSet))
       }).toMap
@@ -285,14 +314,32 @@ object DGrouping {
         , (init, b) => b
       )
 
-      val etwOldInfo = (myBroadcastUnfinished.value ++ myBroadcastJustFinished.value).map(kv => (kv._1, (kv._2._1, kv._2._5)))
+      val etwOldInfo = myBroadcastUnfinished.value ++ myBroadcastJustFinished.value
 
       //      {etw -> (strategyId, M, K, p1, H)}
       val etwRet = newEtwInfo.map(kv => {
         val etw = kv._1
         val (mm, k, maxK, preheadSet) = kv._2
         val p1 = maxK * 1.0 / mm
-        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        //        val (oldStrategy, oldSet) = etwOldInfo.getOrElse(etw, (0, Set[String]()))
+        val (oldStrategy, oldM, _, _, oldSet) = etwOldInfo.getOrElse(etw,
+          if (etwOldInfo.isEmpty) {
+            // 3000 和 0.0 不会被用到
+            (0, 0, 3000, 0.0, Set[String]())
+          } else {
+            val estimateEtw = etwOldInfo.keys.max
+            val (_, me, ke, p1e, he) = etwOldInfo(estimateEtw)
+            val strategyIde = getStrategy(etw, (me / batchSpan).toInt, ke, m, p1e, lambda, he.size)
+            // 万一当前已经执行的 batch 是用了 apk ,那已经有用了这个 he. 需要记录下来
+            if (strategyIde == 0) {
+              (strategyIde, 0, ke, p1e, Set())
+            } else {
+              (strategyIde, 0, ke, p1e, he)
+            }
+            //            (0, Set[String]())
+          }
+        )
+
         for (h <- oldSet) {
           // heavy hitter priority
           if (!preheadSet.contains(h)) {
@@ -300,7 +347,7 @@ object DGrouping {
           }
         }
         //    strategy priority
-        val strategyId = Math.max(getStrategy(mm, k, m, p1, lambda, preheadSet.size), oldStrategy)
+        val strategyId = Math.max(getStrategy(etw, mm - oldM, k, m, p1, lambda, preheadSet.size), oldStrategy)
         (etw, (strategyId, mm, k, p1, preheadSet.toSet))
       }).toMap
 
@@ -309,7 +356,7 @@ object DGrouping {
           s"M: ${eh._2._2}, K: ${eh._2._3}, p1: ${eh._2._4}, heavy hitters: ${eh._2._5.mkString(",")}")
       }
       println(s"DispersionE: $dispersionE")
-      myBroadcastUnfinished.update(etwRet, true)
+      myBroadcastJustFinished.update(etwRet, true)
       println()
     })
 
