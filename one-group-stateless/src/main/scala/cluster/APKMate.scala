@@ -11,6 +11,8 @@ object APKMate {
   //  答案是不会的. 因为如果 partition 没有信息,在做 getPartition 函数中, 并不会有其对应的 pid 出现.
   private val headTable = TrieMap[Int, Set[String]]()
 
+  var dispersion = 0
+
   def updateHeadTable(partitionId: Int, head: Set[String]): Unit = {
     headTable(partitionId) = head
   }

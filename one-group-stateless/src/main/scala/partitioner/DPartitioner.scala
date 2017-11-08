@@ -28,11 +28,16 @@ class DPartitioner(partitions: Int, seeds: Array[Int]) extends Partitioner {
   // for Dynamic
   private var strategyId = 0
 
-  private def getStrategy(M:Int, K:Int, m:Int, p1: Double, lambda: Double, headNum: Int):Int = {
+  private def getStrategy(M:Int, K:Int, m:Int, p1: Double, lambda: Double, headNum: Int, sin: Int):Int = {
     //  最坏情况
     //    val costHH = (1 * 0.6 + delta * 0.4) * M / m
     //  zipf m = 15
-    val costHH = (13.26 * p1 + 1.02) * M / m
+//    val costHH = (13.26 * p1 + 1.02) * M / m
+
+    //
+    val costHH = (14.55 * p1 - 0.3857 + 1.0) * M / m
+
+
     // zipf m = 45
     //    val costHH = (1.3 + 46.4 * p1) * M / m
     // zipf m = 135
@@ -41,7 +46,8 @@ class DPartitioner(partitions: Int, seeds: Array[Int]) extends Partitioner {
 //    val costHH = (2.68 * p1 + 1) * M/m
     // zipf m = 75
 //    val costHH = (78.46 * p1 + 1) * M/m
-    val costAPK = M/m + lambda * (K + headNum * (m - 2))
+    val costAPK = M/m + lambda * (K + headNum * (m - 2) - sin)
+//    val costAPK = M/m + lambda * dis
 
     // 0 for HH, 1 for APK
     val ret = if (costHH <= costAPK) 0 else 1
@@ -56,14 +62,14 @@ class DPartitioner(partitions: Int, seeds: Array[Int]) extends Partitioner {
     if (pid != TaskContext.getPartitionId()) {
       pid = TaskContext.getPartitionId()
       head = DMate.getHead(pid)
-      strategyId = getStrategy(DMate.M, DMate.K, DMate.m, DMate.p1, DMate.lambda, head.size)
+      strategyId = getStrategy(DMate.M, DMate.K, DMate.m, DMate.p1, DMate.lambda, head.size, DMate.single)
       println(s"---- print head ----, using strategy: $strategyId")
       println(head.mkString(","))
     }
     strategyId match {
       case 0 => { // hh
         val choice = (Math.abs(hash.hashBytes(key.toString.getBytes()).asLong()) % partitions).toInt
-        return choice
+        choice
       }
       case 1 => { // apk
         val mapperStats = mapperStatsSet.getOrElse(pid, new Array[Int](partitions))
@@ -81,7 +87,7 @@ class DPartitioner(partitions: Int, seeds: Array[Int]) extends Partitioner {
         })
         mapperStats(ret) += 1
         mapperStatsSet(pid) = mapperStats
-        return ret
+        ret
       }
     }
   }

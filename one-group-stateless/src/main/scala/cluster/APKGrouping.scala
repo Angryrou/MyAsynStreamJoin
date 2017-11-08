@@ -77,10 +77,12 @@ object APKGrouping {
     val reduceLocalCompute = (iter : Iterator[(String, Int)]) => {
       val ret = mutable.Map[String, Int]()
       var sum = 0
+      var dispersion = 0
       while (iter.hasNext) {
         val w = iter.next() // (word, local_count)
         ret.get(w._1) match {
           case Some(v) => {
+            dispersion += 1
             ret(w._1) = v + w._2
             MyUtils.sleepNanos(sleep_time_reduce_ns)
           }
@@ -96,6 +98,7 @@ object APKGrouping {
           heavyRet(wc._1) = (wc._2._1, true)
         }
       }
+      APKMate.dispersion = dispersion
       heavyRet.iterator
     }
 
@@ -110,17 +113,32 @@ object APKGrouping {
 
     messages.foreachRDD((rdd, time) => {
       println(s"------ $time ------")
-      val newHead = rdd.aggregate(mutable.Set[String]()) (
+
+      // M, K, p1, Head, Dispersion
+      val info = rdd.aggregate((0, 0, 0, mutable.Set[String](), 0)) (
         (init, e) => {
           println(e)
+          val M = init._1 + e._2._1
+          val K = init._2 + 1
+          val D = APKMate.dispersion
+          val maxK = if(init._3 > e._2._1) init._3 else e._2._1
           if (e._2._2 == true)
-            init.add(e._1)
-          init
+            init._4.add(e._1)
+          (M, K, maxK, init._4, D)
         },
-        (init, b)=> b
-      ).toSet
+        (a,b) => b
+      )
+
+      val M = info._1
+      val K = info._2
+      val p1 = info._3 * 1.0 / M
+      val newHead = info._4.toSet
+      val D = info._5
+
+      println(s"M: $M, K: $K, p1: $p1, dispersion: $D, newHead: ${newHead.mkString(",")}")
       println(s"newHead: ${newHead.mkString(",")}")
       myBroadcast.update(newHead, true)
+      println()
     })
 
     ssc.start()

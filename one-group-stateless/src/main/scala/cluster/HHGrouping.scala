@@ -53,6 +53,7 @@ object HHGrouping {
         val tmp10 = iter.next()._2.split(";")
         for (t <- tmp10) {
           val tmp = t.split(' ')
+          println(tmp.mkString("--"))
           val z = tmp(1)
           //        val x = tmp(2).toInt
           for (a <- 1 to duplicateRate) {

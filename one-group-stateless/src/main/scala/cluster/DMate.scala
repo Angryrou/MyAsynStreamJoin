@@ -22,10 +22,11 @@ object DMate {
   var lambda = 0.0 // maximum load / dispersion
   var m = 15 // mapper size
   var M = 150000 * 3
+  var single = 0
   private val delta = 0.0d to 10.0d by 0.1d toArray // delta
   private val h_delta = delta.map(x => (1+x) * Math.log(1+x) - x) // h_delta
 
   var p1 = -0.1 // biggest possibility of z
   var K = 0 // key size
-
+  var dispersion = 0
 }
